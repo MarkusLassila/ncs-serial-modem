@@ -1,0 +1,25 @@
+/*
+ * Copyright (c) 2025 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+ / {
+	chosen {
+		ncs,sm-power-gpios = &power_gpios;
+	};
+};
+
+/ {
+	power_gpios: sm-power-gpios {
+		compatible = "nordic,sm-power-gpios";
+		power-gpios = <&gpio0 22 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+		status = "okay";
+	};
+};
+
+&gpio0 {
+	status = "okay";
+	/* Use PORT events to save power */
+	sense-edge-mask = <0xFFFFFFFF>;
+};
