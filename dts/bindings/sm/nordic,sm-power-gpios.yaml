@@ -4,10 +4,10 @@
 description: |
     Serial Modem power pin for Zephyr Modem.
 
-compatible: "nordic,sm-power-gpios"
+compatible: "nordic,sm-power-key"
 
 properties:
-  power-gpios:
+  gpios:
     type: phandle-array
     description: Input. Power GPIO pin.
     required: true

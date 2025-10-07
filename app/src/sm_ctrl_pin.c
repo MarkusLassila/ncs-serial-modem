@@ -19,7 +19,7 @@
 LOG_MODULE_REGISTER(sm_ctrl_pin, CONFIG_SM_LOG_LEVEL);
 
 #define SM_DTR_GPIOS DT_NODE_HAS_PROP(DT_CHOSEN(ncs_sm_uart), dtr_gpios)
-#define SM_MDM_PWR_GPIOS DT_NODE_HAS_PROP(DT_CHOSEN(ncs_sm_power_gpios), power_gpios)
+#define SLM_HAS_PWR_KEY DT_HAS_CHOSEN(ncs_sm_power_key)
 
 #if SM_DTR_GPIOS
 static const struct gpio_dt_spec dtr_gpio =
@@ -27,9 +27,9 @@ static const struct gpio_dt_spec dtr_gpio =
 
 static struct gpio_callback dtr_gpio_cb;
 #endif
-#if SM_MDM_PWR_GPIOS
+#if SLM_HAS_PWR_KEY
 static const struct gpio_dt_spec mdm_pwr_gpio =
-	GPIO_DT_SPEC_GET_OR(DT_CHOSEN(ncs_sm_power_gpios), power_gpios, {0});
+	GPIO_DT_SPEC_GET_OR(DT_CHOSEN(ncs_sm_power_key), gpios, {0});
 
 static struct gpio_callback mdm_pwr_gpio_cb;
 #endif
@@ -102,7 +102,7 @@ int sm_ctrl_pin_ready(void)
 
 void sm_ctrl_pin_enter_sleep_no_uninit(bool at_host_power_off)
 {
-#if SM_DTR_GPIOS || SM_MDM_PWR_GPIOS
+#if SM_DTR_GPIOS || SLM_HAS_PWR_KEY
 	if (at_host_power_off) {
 		sm_at_host_power_off();
 	}
@@ -119,7 +119,7 @@ void sm_ctrl_pin_enter_sleep_no_uninit(bool at_host_power_off)
 
 void sm_ctrl_pin_enter_sleep(void)
 {
-#if SM_DTR_GPIOS || SM_MDM_PWR_GPIOS
+#if SM_DTR_GPIOS || SLM_HAS_PWR_KEY
 
 	/* Stop threads, uninitialize host and disable DTR UART. */
 	sm_at_host_uninit();
@@ -171,7 +171,7 @@ void sm_ctrl_pin_enter_shutdown(void)
 
 void sm_ctrl_pin_init_gpios(void)
 {
-#if SM_MDM_PWR_GPIOS
+#if SLM_HAS_PWR_KEY
 	/* Configure Modem Power GPIO */
 	if (!gpio_is_ready_dt(&mdm_pwr_gpio)) {
 		LOG_ERR("Modem Power GPIO not ready");
@@ -198,7 +198,7 @@ int sm_ctrl_pin_init(void)
 #if SM_DTR_GPIOS
 	nrf_gpio_cfg_sense_set(dtr_gpio.pin, NRF_GPIO_PIN_SENSE_LOW);
 #endif
-#if SM_MDM_PWR_GPIOS
+#if SLM_HAS_PWR_KEY
 	err = gpio_pin_interrupt_configure_dt(&mdm_pwr_gpio, GPIO_INT_EDGE_TO_ACTIVE);
 	if (err) {
 		LOG_ERR("Failed to configure Modem Power GPIO interrupt (%d).", err);
