@@ -882,7 +882,7 @@ static int do_send(struct sm_socket *sock, const uint8_t *data, int len, int fla
 	return sent > 0 ? sent : ret;
 }
 
-static int data_send_hex(struct sm_socket *sock, const uint8_t *buf, int recv_len)
+static int data_send_hex(const uint8_t *buf, int recv_len)
 {
 	int consumed = 0;
 	char hex_buf[256] = {0};
@@ -944,15 +944,20 @@ static int do_recv(struct sm_socket *sock, int timeout, int flags, enum sm_socke
 	} else {
 		rsp_send("\r\n#XRECV: %d,%d,%d\r\n", sock->fd, mode, ret);
 
+		LOG_DBG("sock->fd= %d", sock->fd);
+
 		if (mode == AT_SOCKET_RECV_MODE_HEXSTRING) {
-			ret = data_send_hex(sock, sm_data_buf, ret);
+			ret = data_send_hex(sm_data_buf, ret);
 			if (ret) {
+				LOG_WRN("data_send_hex() error: %d", ret);
 				return ret;
 			}
 		} else {
 			data_send(sm_data_buf, ret);
 		}
 		ret = 0;
+
+		LOG_DBG("sock->fd= %d", sock->fd);
 
 		delegate_poll_event(sock, NRF_POLLIN);
 	}
@@ -1060,7 +1065,7 @@ static int do_recvfrom(struct sm_socket *sock, int timeout, int flags,
 			 peer_port);
 
 		if (mode == AT_SOCKET_RECV_MODE_HEXSTRING) {
-			ret = data_send_hex(sock, sm_data_buf, ret);
+			ret = data_send_hex(sm_data_buf, ret);
 			if (ret) {
 				return ret;
 			}
