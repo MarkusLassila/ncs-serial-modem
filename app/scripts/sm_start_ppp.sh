@@ -138,10 +138,9 @@ novj
 nodeflate
 nobsdcomp
 noipdefault
+nodefaultroute
 +ipv6
 noremoteip
-defaultroute
-defaultroute-metric -1
 lcp-echo-interval 0
 $PPP_DEBUG
 "

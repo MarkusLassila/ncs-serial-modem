@@ -75,7 +75,7 @@ config SM_UART_RX_BUF_SIZE
 
 config SM_UART_TX_BUF_SIZE
 	int "Send buffer size for UART"
-	range 128 4096
+	range 128 8192
 	default 256
 	help
 	  Amount of UART traffic waiting to be sent (TX), that can be held.
