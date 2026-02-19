@@ -631,7 +631,7 @@ static int handle_at_mqtt_connect(enum at_parser_cmd_type cmd_type, struct at_pa
 	return err;
 }
 
-static int mqtt_datamode_callback(uint8_t op, const uint8_t *data, int len, uint8_t flags)
+static int mqtt_datamode_callback(uint8_t op, const uint8_t *data, size_t len, uint8_t flags)
 {
 	int ret = 0;
 

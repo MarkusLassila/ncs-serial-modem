@@ -18,18 +18,36 @@ duration_run2 = [41.17, 39.18, 37.17, 35.24, 33.19, 31.25, 29.25, 27.18, 25.09, 
 transmitted_run2 = [409602] * 21
 loss_percent_run2 = [0.25, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.18, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 4.78, 51.88, 14.14, 2.37, 7.14, 1.00]
 
+# Run 3 data
+delays_run3 = [200, 190, 180, 170, 160, 150, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+duration_run3 = [40.19, 38.17, 37.21, 35.20, 33.22, 31.25, 27.22, 25.18, 23.17, 21.26, 19.26, 17.18, 15.19, 13.22, 11.18, 10.18, 556.92, 16.15, 13.21, 17.25]
+transmitted_run3 = [409602] * 20
+loss_percent_run3 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.34, 0.00, 0.75, 8.34, 44.81, 61.89, 69.90, 77.49, 82.02, 82.64, 83.96, 84.33, 81.75, 89.27, 82.19]
+
+# Run 4 data
+delays_run4 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+duration_run4 = [40.34, 39.21, 37.18, 35.18, 33.18, 31.25, 29.25, 27.25, 25.25, 23.23, 21.26, 19.18, 17.18, 15.25, 13.26, 11.19, 9.18, 15.17, 12.20, 13.22, 14.15]
+transmitted_run4 = [409602] * 21
+loss_percent_run4 = [0.00, 6.13, 0.00, 0.00, 0.00, 0.66, 1.59, 2.82, 3.06, 7.20, 15.59, 27.15, 38.88, 46.04, 49.37, 58.38, 66.68, 69.48, 77.08, 72.77, 69.86]
+
 # Calculate throughput (bytes/second)
 throughput_run1 = [t / d for t, d in zip(transmitted_run1, duration_run1)]
 throughput_run2 = [t / d for t, d in zip(transmitted_run2, duration_run2)]
+throughput_run3 = [t / d for t, d in zip(transmitted_run3, duration_run3)]
+throughput_run4 = [t / d for t, d in zip(transmitted_run4, duration_run4)]
 
 # Create the plot
 plt.figure(figsize=(14, 8))
 plt.scatter(throughput_run1, loss_percent_run1, c='red', s=100, alpha=0.6, edgecolors='darkred', linewidth=1.5, label='Run 1')
 plt.scatter(throughput_run2, loss_percent_run2, c='blue', s=100, alpha=0.6, edgecolors='darkblue', linewidth=1.5, label='Run 2')
+plt.scatter(throughput_run3, loss_percent_run3, c='green', s=100, alpha=0.6, edgecolors='darkgreen', linewidth=1.5, label='Run 3', marker='^')
+plt.scatter(throughput_run4, loss_percent_run4, c='magenta', s=100, alpha=0.6, edgecolors='darkmagenta', linewidth=1.5, label='Run 4', marker='d')
 
 # Add connecting lines for better visualization
 plt.plot(throughput_run1, loss_percent_run1, 'r-', linewidth=1, alpha=0.3)
 plt.plot(throughput_run2, loss_percent_run2, 'b-', linewidth=1, alpha=0.3)
+plt.plot(throughput_run3, loss_percent_run3, 'g-', linewidth=1, alpha=0.3)
+plt.plot(throughput_run4, loss_percent_run4, 'm-', linewidth=1, alpha=0.3)
 
 # Add grid
 plt.grid(True, alpha=0.3)
@@ -47,7 +65,7 @@ ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.1f}K'))
 plt.legend(fontsize=11, loc='best')
 
 # Set y-axis to start at 0
-plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run2)) * 1.1)
+plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run2), max(loss_percent_run3), max(loss_percent_run4)) * 1.1)
 
 # Adjust layout
 plt.tight_layout()
@@ -58,8 +76,9 @@ print("Plot saved as 'loss_vs_throughput_comparison.png'")
 
 # Print correlation insights
 print("\nInsights:")
-print("- Lower throughput generally correlates with higher packet loss in Run 1")
-print("- Run 2 shows much better performance with low loss across most throughput ranges")
-print("- Optimal operating range appears to be 15-25 KB/s with minimal loss in Run 2")
+print("- Runs 1 and 3 show high packet loss at lower delays (higher throughput attempts)")
+print("- Run 2 shows exceptional performance with low loss across most delay values")
+print("- Run 4 shows intermediate performance with gradual loss increase as delay decreases")
+print("- Optimal operating range appears to be delays >= 150ms for consistent low loss")
 
 plt.show()
