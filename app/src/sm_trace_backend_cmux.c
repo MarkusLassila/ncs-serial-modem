@@ -64,6 +64,12 @@ int trace_backend_write(const void *data, size_t len)
 
 	modem_pipe_attach(pipe, modem_pipe_event_handler, NULL);
 
+	if (k_sem_take(&tx_idle_sem, K_SECONDS(1)) != 0) {
+		LOG_WRN("TX timeout.");
+		trace_processed_callback(len);
+		return -EAGAIN;
+	}
+
 	while (sent_len < len) {
 		ret = modem_pipe_transmit(pipe, buf, len - sent_len);
 		if (ret < 0) {
@@ -75,6 +81,7 @@ int trace_backend_write(const void *data, size_t len)
 				LOG_WRN("TX timeout.");
 				break;
 			}
+			// k_sleep(K_MSEC(1));
 		} else {
 			sent_len += ret;
 			buf += ret;
