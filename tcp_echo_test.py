@@ -17,6 +17,7 @@ SERVER_PORT = 20180               # Replace with your port
 INTERFACE = "ppp0"
 PACKET_SIZE = 1024
 NUM_PACKETS = 200
+SEND_DELAY_MS = 10               # Delay between packets in milliseconds
 
 def bind_to_interface(sock, interface):
     """Bind socket to specific network interface"""
@@ -24,25 +25,26 @@ def bind_to_interface(sock, interface):
     sock.setsockopt(socket.SOL_SOCKET, SO_BINDTODEVICE, 
                     interface.encode('utf-8'))
 
-def create_packet(seq_num, size=PACKET_SIZE):
+def create_packet(seq_num, size=PACKET_SIZE, delay_ms=None):
     """Create identifiable packet with sequence number"""
-    # Header: [SEQ_NUM (4 bytes)][TIMESTAMP (8 bytes)][PATTERN]
+    # Header: [SEQ_NUM (4 bytes)][TIMESTAMP (8 bytes)][DELAY_MS (4 bytes if seq==1)][PATTERN]
     header = struct.pack('!IQ', seq_num, int(time.time() * 1000000))
+    
+    # First packet includes delay_ms for identification in pcap
+    if seq_num == 1 and delay_ms is not None:
+        header += struct.pack('!I', delay_ms)
+        marker = f"DELAY={delay_ms}ms ".encode('utf-8')
+        header += marker
+    
     pattern = b'ABCDEFGHIJKLMNOP' * ((size - len(header)) // 16)
     padding = b'X' * ((size - len(header)) % 16)
     return header + pattern + padding
 
-def main():
-    if len(sys.argv) >= 2:
-        global SERVER_HOST
-        SERVER_HOST = sys.argv[1]
-    if len(sys.argv) >= 3:
-        global SERVER_PORT
-        SERVER_PORT = int(sys.argv[2])
-    
-    print(f"TCP Echo Test via {INTERFACE}")
-    print(f"Server: {SERVER_HOST}:{SERVER_PORT}")
-    print(f"Packets: {NUM_PACKETS} x {PACKET_SIZE} bytes\n")
+def run_single_test(delay_ms):
+    """Run a single test iteration with specified delay"""
+    print(f"\n{'='*60}")
+    print(f"Starting test with {delay_ms}ms delay")
+    print(f"{'='*60}\n")
     
     # Create TCP socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -78,12 +80,16 @@ def main():
                 if not stats['running']:
                     break
                 try:
-                    packet = create_packet(seq, PACKET_SIZE)
+                    packet = create_packet(seq, PACKET_SIZE, delay_ms)
                     sock.sendall(packet)
                     
                     with stats_lock:
                         stats['bytes_sent'] += len(packet)
                         stats['packets_sent'] = seq
+                    
+                    # Delay before sending next packet
+                    if seq < NUM_PACKETS:  # Don't delay after last packet
+                        time.sleep(delay_ms / 1000.0)
                         
                 except Exception as e:
                     print(f"Send error on packet {seq}: {e}")
@@ -219,7 +225,7 @@ def main():
                 print(f"\nWARNING: Missing packets: {sorted(missing)[:10]}{'...' if len(missing) > 10 else ''}")
         
         print(f"\n{'='*60}")
-        print(f"Test Complete!")
+        print(f"Test Complete! (Delay: {delay_ms}ms)")
         print(f"{'='*60}")
         print(f"Packets sent:     {packets_sent}/{NUM_PACKETS}")
         print(f"Packets received: {packets_received}/{NUM_PACKETS}")
@@ -233,17 +239,96 @@ def main():
         print(f"Packet loss:      {(packets_sent - packets_received) / packets_sent * 100:.2f}%")
         print(f"Errors:           {errors}")
         
+        return {
+            'delay_ms': delay_ms,
+            'packets_sent': packets_sent,
+            'packets_received': packets_received,
+            'bytes_sent': bytes_sent,
+            'bytes_received': bytes_received,
+            'duration': elapsed,
+            'errors': errors,
+            'packet_loss_pct': (packets_sent - packets_received) / packets_sent * 100 if packets_sent > 0 else 0
+        }
+        
     except PermissionError:
         print("ERROR: Need root/sudo to bind to network interface")
         print("Run with: sudo python3 tcp_echo_test.py")
-        return 1
+        return None
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
         traceback.print_exc()
-        return 1
+        return None
     finally:
         sock.close()
+
+
+def main():
+    """Main function - runs tests with decreasing delays"""
+    # Parse command line arguments
+    if len(sys.argv) >= 2:
+        global SERVER_HOST
+        SERVER_HOST = sys.argv[1]
+    if len(sys.argv) >= 3:
+        global SERVER_PORT
+        SERVER_PORT = int(sys.argv[2])
+    
+    # Test parameters
+    start_delay = 200  # Start at 200ms
+    delay_step = 10    # Decrease by 10ms each iteration
+    min_delay = 0      # Minimum delay
+    pause_between_tests = 3  # Seconds to wait between tests
+    
+    print(f"{'='*80}")
+    print(f"TCP Echo Test Suite via {INTERFACE}")
+    print(f"{'='*80}")
+    print(f"Server: {SERVER_HOST}:{SERVER_PORT}")
+    print(f"Packets per test: {NUM_PACKETS} x {PACKET_SIZE} bytes")
+    print(f"Delay range: {start_delay}ms -> {min_delay}ms (step: {delay_step}ms)")
+    print(f"Pause between tests: {pause_between_tests}s")
+    print(f"{'='*80}\n")
+    
+    # Run tests with decreasing delays
+    results = []
+    current_delay = start_delay
+    
+    while current_delay >= min_delay:
+        result = run_single_test(current_delay)
+        
+        if result:
+            results.append(result)
+        else:
+            print(f"\nTest with {current_delay}ms delay failed!")
+            if current_delay == start_delay:
+                # First test failed, likely a configuration issue
+                return 1
+        
+        # Move to next delay
+        current_delay -= delay_step
+        
+        # Pause between tests (except after the last one)
+        if current_delay >= min_delay:
+            print(f"\nWaiting {pause_between_tests}s before next test...\n")
+            time.sleep(pause_between_tests)
+    
+    # Print summary of all tests
+    print(f"\n{'='*80}")
+    print(f"ALL TESTS COMPLETE - SUMMARY")
+    print(f"{'='*80}")
+    print(f"{'Delay (ms)':<12} {'Packets Sent':<14} {'Packets Rcvd':<14} {'Loss %':<10} {'Duration (s)':<14} {'Errors'}")
+    print(f"{'-'*80}")
+    
+    for result in results:
+        print(f"{result['delay_ms']:<12} "
+              f"{result['packets_sent']:<14} "
+              f"{result['packets_received']:<14} "
+              f"{result['packet_loss_pct']:<10.2f} "
+              f"{result['duration']:<14.2f} "
+              f"{result['errors']}")
+    
+    print(f"{'='*80}")
+    print(f"Total tests completed: {len(results)}/{(start_delay - min_delay) // delay_step + 1}")
+    print(f"{'='*80}\n")
     
     return 0
 
