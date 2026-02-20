@@ -30,11 +30,53 @@ duration_run4 = [40.34, 39.21, 37.18, 35.18, 33.18, 31.25, 29.25, 27.25, 25.25, 
 transmitted_run4 = [409602] * 21
 loss_percent_run4 = [0.00, 6.13, 0.00, 0.00, 0.00, 0.66, 1.59, 2.82, 3.06, 7.20, 15.59, 27.15, 38.88, 46.04, 49.37, 58.38, 66.68, 69.48, 77.08, 72.77, 69.86]
 
+# Run 5 data
+delays_run5 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+duration_run5 = [41.23, 39.17, 37.17, 35.26, 33.24, 31.23, 29.25, 27.25, 25.24, 23.21, 21.25, 19.26, 17.23, 15.25, 13.26, 11.18, 10.22, 17.23, 18.14, 23.19, 15.23]
+transmitted_run5 = [409602] * 21
+loss_percent_run5 = [0.41, 0.41, 2.81, 1.73, 6.57, 5.10, 11.83, 15.61, 25.19, 36.47, 44.72, 45.40, 59.61, 65.52, 71.89, 77.28, 82.55, 76.75, 67.99, 58.16, 78.76]
+
+# # Run 6 data (TEMPLATE - Uncomment and fill in data)
+# delays_run6 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+# duration_run6 = [41.00, 39.00, 37.00, 35.00, 33.00, 31.00, 29.00, 27.00, 25.00, 23.00, 21.00, 19.00, 17.00, 15.00, 13.00, 11.00, 10.00, 17.00, 18.00, 23.00, 15.00]
+# transmitted_run6 = [409602] * 21
+# loss_percent_run6 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
+
+# # Run 7 data (TEMPLATE - Uncomment and fill in data)
+# delays_run7 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+# duration_run7 = [41.00, 39.00, 37.00, 35.00, 33.00, 31.00, 29.00, 27.00, 25.00, 23.00, 21.00, 19.00, 17.00, 15.00, 13.00, 11.00, 10.00, 17.00, 18.00, 23.00, 15.00]
+# transmitted_run7 = [409602] * 21
+# loss_percent_run7 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
+
+# # Run 8 data (TEMPLATE - Uncomment and fill in data)
+# delays_run8 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+# duration_run8 = [41.00, 39.00, 37.00, 35.00, 33.00, 31.00, 29.00, 27.00, 25.00, 23.00, 21.00, 19.00, 17.00, 15.00, 13.00, 11.00, 10.00, 17.00, 18.00, 23.00, 15.00]
+# transmitted_run8 = [409602] * 21
+# loss_percent_run8 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
+
+# # Run 9 data (TEMPLATE - Uncomment and fill in data)
+# delays_run9 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+# duration_run9 = [41.00, 39.00, 37.00, 35.00, 33.00, 31.00, 29.00, 27.00, 25.00, 23.00, 21.00, 19.00, 17.00, 15.00, 13.00, 11.00, 10.00, 17.00, 18.00, 23.00, 15.00]
+# transmitted_run9 = [409602] * 21
+# loss_percent_run9 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
+
+# # Run 10 data (TEMPLATE - Uncomment and fill in data)
+# delays_run10 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+# duration_run10 = [41.00, 39.00, 37.00, 35.00, 33.00, 31.00, 29.00, 27.00, 25.00, 23.00, 21.00, 19.00, 17.00, 15.00, 13.00, 11.00, 10.00, 17.00, 18.00, 23.00, 15.00]
+# transmitted_run10 = [409602] * 21
+# loss_percent_run10 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
+
 # Calculate throughput (bytes/second)
 throughput_run1 = [t / d for t, d in zip(transmitted_run1, duration_run1)]
 throughput_run2 = [t / d for t, d in zip(transmitted_run2, duration_run2)]
 throughput_run3 = [t / d for t, d in zip(transmitted_run3, duration_run3)]
 throughput_run4 = [t / d for t, d in zip(transmitted_run4, duration_run4)]
+throughput_run5 = [t / d for t, d in zip(transmitted_run5, duration_run5)]
+# throughput_run6 = [t / d for t, d in zip(transmitted_run6, duration_run6)]  # Uncomment for Run 6
+# throughput_run7 = [t / d for t, d in zip(transmitted_run7, duration_run7)]  # Uncomment for Run 7
+# throughput_run8 = [t / d for t, d in zip(transmitted_run8, duration_run8)]  # Uncomment for Run 8
+# throughput_run9 = [t / d for t, d in zip(transmitted_run9, duration_run9)]  # Uncomment for Run 9
+# throughput_run10 = [t / d for t, d in zip(transmitted_run10, duration_run10)]  # Uncomment for Run 10
 
 # Create the plot
 plt.figure(figsize=(14, 8))
@@ -42,12 +84,24 @@ plt.scatter(throughput_run1, loss_percent_run1, c='red', s=100, alpha=0.6, edgec
 plt.scatter(throughput_run2, loss_percent_run2, c='blue', s=100, alpha=0.6, edgecolors='darkblue', linewidth=1.5, label='Run 2')
 plt.scatter(throughput_run3, loss_percent_run3, c='green', s=100, alpha=0.6, edgecolors='darkgreen', linewidth=1.5, label='Run 3', marker='^')
 plt.scatter(throughput_run4, loss_percent_run4, c='magenta', s=100, alpha=0.6, edgecolors='darkmagenta', linewidth=1.5, label='Run 4', marker='d')
+plt.scatter(throughput_run5, loss_percent_run5, c='cyan', s=100, alpha=0.6, edgecolors='darkcyan', linewidth=1.5, label='Run 5', marker='v')
+# plt.scatter(throughput_run6, loss_percent_run6, c='yellow', s=100, alpha=0.6, edgecolors='olive', linewidth=1.5, label='Run 6', marker='o')  # Uncomment for Run 6
+# plt.scatter(throughput_run7, loss_percent_run7, c='black', s=100, alpha=0.6, edgecolors='gray', linewidth=1.5, label='Run 7', marker='s')  # Uncomment for Run 7
+# plt.scatter(throughput_run8, loss_percent_run8, c='orange', s=100, alpha=0.6, edgecolors='darkorange', linewidth=1.5, label='Run 8', marker='^')  # Uncomment for Run 8
+# plt.scatter(throughput_run9, loss_percent_run9, c='brown', s=100, alpha=0.6, edgecolors='saddlebrown', linewidth=1.5, label='Run 9', marker='s')  # Uncomment for Run 9
+# plt.scatter(throughput_run10, loss_percent_run10, c='purple', s=100, alpha=0.6, edgecolors='indigo', linewidth=1.5, label='Run 10', marker='p')  # Uncomment for Run 10
 
 # Add connecting lines for better visualization
 plt.plot(throughput_run1, loss_percent_run1, 'r-', linewidth=1, alpha=0.3)
 plt.plot(throughput_run2, loss_percent_run2, 'b-', linewidth=1, alpha=0.3)
 plt.plot(throughput_run3, loss_percent_run3, 'g-', linewidth=1, alpha=0.3)
 plt.plot(throughput_run4, loss_percent_run4, 'm-', linewidth=1, alpha=0.3)
+plt.plot(throughput_run5, loss_percent_run5, 'c-', linewidth=1, alpha=0.3)
+# plt.plot(throughput_run6, loss_percent_run6, 'y-', linewidth=1, alpha=0.3)  # Uncomment for Run 6
+# plt.plot(throughput_run7, loss_percent_run7, 'k-', linewidth=1, alpha=0.3)  # Uncomment for Run 7
+# plt.plot(throughput_run8, loss_percent_run8, color='orange', linestyle='-', linewidth=1, alpha=0.3)  # Uncomment for Run 8
+# plt.plot(throughput_run9, loss_percent_run9, color='brown', linestyle='-', linewidth=1, alpha=0.3)  # Uncomment for Run 9
+# plt.plot(throughput_run10, loss_percent_run10, color='purple', linestyle='-', linewidth=1, alpha=0.3)  # Uncomment for Run 10
 
 # Add grid
 plt.grid(True, alpha=0.3)
@@ -65,7 +119,8 @@ ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.1f}K'))
 plt.legend(fontsize=11, loc='best')
 
 # Set y-axis to start at 0
-plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run2), max(loss_percent_run3), max(loss_percent_run4)) * 1.1)
+plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run2), max(loss_percent_run3), max(loss_percent_run4), max(loss_percent_run5)) * 1.1)
+# plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run2), max(loss_percent_run3), max(loss_percent_run4), max(loss_percent_run5), max(loss_percent_run6)) * 1.1)  # Uncomment and add more runs as needed
 
 # Adjust layout
 plt.tight_layout()
