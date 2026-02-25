@@ -5,7 +5,10 @@ Analyzes TCP connections to calculate data loss based on ACK vs actual captured 
 """
 
 import sys
+import os
+import glob
 import argparse
+import csv
 from collections import defaultdict
 from scapy.all import rdpcap, TCP, IP
 from datetime import datetime
@@ -174,6 +177,57 @@ class TCPConnection:
         return stats
 
 
+def get_next_result_filename(base_name="result", extension="csv"):
+    """Find the next available filename with auto-incrementing number"""
+    # Find all existing files matching the pattern
+    pattern = f"{base_name}_*.{extension}"
+    existing_files = glob.glob(pattern)
+    
+    if not existing_files:
+        return f"{base_name}_1.{extension}"
+    
+    # Extract numbers from existing files
+    numbers = []
+    for filename in existing_files:
+        # Extract the number between base_name_ and .extension
+        try:
+            num_str = filename[len(base_name)+1:-len(extension)-1]
+            numbers.append(int(num_str))
+        except (ValueError, IndexError):
+            continue
+    
+    if not numbers:
+        return f"{base_name}_1.{extension}"
+    
+    # Return next available number
+    next_num = max(numbers) + 1
+    return f"{base_name}_{next_num}.{extension}"
+
+
+def save_results(filename, delay_stats, all_stats):
+    """Save analysis results to CSV file"""
+    with open(filename, 'w', newline='') as csvfile:
+        # Write delay vs loss data if available
+        if delay_stats:
+            writer = csv.writer(csvfile)
+            writer.writerow(['Delay_ms', 'Duration_s', 'Transmitted', 'Captured', 'Lost', 'Loss_pct'])
+            
+            # Sort by delay descending
+            delay_stats_sorted = sorted(delay_stats, key=lambda x: x['delay_ms'], reverse=True)
+            
+            for stats in delay_stats_sorted:
+                writer.writerow([
+                    stats['delay_ms'],
+                    f"{stats['duration']:.2f}",
+                    stats['total_transmitted'],
+                    stats['total_captured'],
+                    stats['total_loss'],
+                    f"{stats['total_loss_pct']:.2f}"
+                ])
+    
+    print(f"\nResults saved to: {filename}")
+
+
 def analyze_pcap(pcap_file, target_port=None):
     """Analyze PCAP file for TCP connections"""
     print(f"Reading {pcap_file}...")
@@ -305,6 +359,9 @@ def analyze_pcap(pcap_file, target_port=None):
             print(f"{'='*100}")
         
         print(f"{'='*100}")
+    
+    # Return statistics for file output
+    return all_stats, delay_stats
 
 
 def main():
@@ -327,6 +384,8 @@ Examples:
     parser.add_argument('pcap_file', help='PCAP file to analyze')
     parser.add_argument('-p', '--port', type=int, default=20180,
                        help='Filter by TCP port (default: 20180, use 0 for all ports)')
+    parser.add_argument('-o', '--output', type=str, default=None,
+                       help='Output file for results (CSV format). If not specified, auto-generates result_N.csv')
     
     args = parser.parse_args()
     
@@ -337,7 +396,18 @@ Examples:
     else:
         print("Analyzing all TCP connections\n")
     
-    analyze_pcap(args.pcap_file, port_filter)
+    all_stats, delay_stats = analyze_pcap(args.pcap_file, port_filter)
+    
+    # Save results to file
+    if args.output:
+        output_file = args.output
+    else:
+        output_file = get_next_result_filename()
+    
+    if delay_stats:
+        save_results(output_file, delay_stats, all_stats)
+    else:
+        print("\nNo delay statistics available to save (no connections with delay information found)")
     
 
 if __name__ == "__main__":

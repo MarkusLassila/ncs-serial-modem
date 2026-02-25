@@ -5,59 +5,125 @@ Plot Loss % as a function of Delay (ms)
 
 import matplotlib.pyplot as plt
 import numpy as np
+import csv
+import sys
+import argparse
+import os
+
+def load_run_from_csv(filename):
+    """Load run data from CSV file"""
+    delays = []
+    loss_percent = []
+    
+    with open(filename, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            delays.append(float(row['Delay_ms']))
+            loss_percent.append(float(row['Loss_pct']))
+    
+    return delays, loss_percent
+
+def plot_from_files(files):
+    """Plot data from multiple CSV files"""
+    # Define color and marker styles
+    styles = [
+        {'color': 'r', 'marker': 'o', 'label_prefix': 'Run'},
+        {'color': 'b', 'marker': 's', 'label_prefix': 'Run'},
+        {'color': 'g', 'marker': '^', 'label_prefix': 'Run'},
+        {'color': 'm', 'marker': 'd', 'label_prefix': 'Run'},
+        {'color': 'c', 'marker': 'v', 'label_prefix': 'Run'},
+        {'color': 'y', 'marker': 'o', 'label_prefix': 'Run'},
+        {'color': 'k', 'marker': 'p', 'label_prefix': 'Run'},
+        {'color': 'orange', 'marker': '*', 'label_prefix': 'Run'},
+        {'color': 'purple', 'marker': 'h', 'label_prefix': 'Run'},
+        {'color': 'brown', 'marker': 'x', 'label_prefix': 'Run'},
+    ]
+    
+    plt.figure(figsize=(14, 8))
+    
+    max_loss = 0
+    for idx, filename in enumerate(files):
+        try:
+            delays, loss_percent = load_run_from_csv(filename)
+            style = styles[idx % len(styles)]
+            
+            # Extract run name from filename
+            run_name = os.path.splitext(os.path.basename(filename))[0]
+            
+            plt.plot(delays, loss_percent, 
+                    f"{style['color']}{style['marker']}-",
+                    linewidth=2, markersize=8, 
+                    label=run_name, alpha=0.7)
+            
+            if loss_percent:
+                max_loss = max(max_loss, max(loss_percent))
+        except Exception as e:
+            print(f"Error loading {filename}: {e}")
+            continue
+    
+    # Add grid
+    plt.grid(True, alpha=0.3)
+    
+    # Labels and title
+    plt.xlabel('Delay (ms)', fontsize=12, fontweight='bold')
+    plt.ylabel('Loss %', fontsize=12, fontweight='bold')
+    plt.title('Packet Loss % vs Delay - Comparison of Test Runs', fontsize=14, fontweight='bold')
+    
+    # Add horizontal line at 0% loss for reference
+    plt.axhline(y=0, color='g', linestyle='--', alpha=0.5, label='0% Loss Reference')
+    
+    # Invert x-axis so higher delays are on the left
+    plt.gca().invert_xaxis()
+    
+    # Add legend
+    plt.legend(fontsize=11, loc='upper right')
+    
+    # Set y-axis to start at 0
+    plt.ylim(-2, max_loss * 1.1 if max_loss > 0 else 100)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save and show
+    plt.savefig('loss_rate_vs_delay_comparison.png', dpi=300, bbox_inches='tight')
+    print("Plot saved as 'loss_rate_vs_delay_comparison.png'")
+    plt.show()
+
+def plot_hardcoded():
+    """Plot using hardcoded data (legacy mode)"""
 
 # Data from test results - Run 1
 delays_run1 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
 loss_percent_run1 = [0.00, 11.32, 3.02, 0.00, 0.00, 0.00, 0.00, 0.34, 23.88, 38.38, 51.53, 64.82, 68.51, 73.11, 82.13, 77.79, 89.35, 63.31, 80.81, 62.92, 59.11]
 
 # Data from test results - Run 2
-# delays_run2 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
-# loss_percent_run2 = [0.25, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.18, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 4.78, 51.88, 14.14, 2.37, 7.14, 1.00]
+delays_run2 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+loss_percent_run2 = [0.25, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.18, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 4.78, 51.88, 14.14, 2.37, 7.14, 1.00]
 
 # Data from test results - Run 3
-# delays_run3 = [200, 190, 180, 170, 160, 150, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
-# loss_percent_run3 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.34, 0.00, 0.75, 8.34, 44.81, 61.89, 69.90, 77.49, 82.02, 82.64, 83.96, 84.33, 81.75, 89.27, 82.19]
+delays_run3 = [200, 190, 180, 170, 160, 150, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+loss_percent_run3 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.34, 0.00, 0.75, 8.34, 44.81, 61.89, 69.90, 77.49, 82.02, 82.64, 83.96, 84.33, 81.75, 89.27, 82.19]
 
 # Data from test results - Run 4
-# delays_run4 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
-# loss_percent_run4 = [0.00, 6.13, 0.00, 0.00, 0.00, 0.66, 1.59, 2.82, 3.06, 7.20, 15.59, 27.15, 38.88, 46.04, 49.37, 58.38, 66.68, 69.48, 77.08, 72.77, 69.86]
+delays_run4 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+loss_percent_run4 = [0.00, 6.13, 0.00, 0.00, 0.00, 0.66, 1.59, 2.82, 3.06, 7.20, 15.59, 27.15, 38.88, 46.04, 49.37, 58.38, 66.68, 69.48, 77.08, 72.77, 69.86]
 
 # Data from test results - Run 5
 delays_run5 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
 loss_percent_run5 = [0.41, 0.41, 2.81, 1.73, 6.57, 5.10, 11.83, 15.61, 25.19, 36.47, 44.72, 45.40, 59.61, 65.52, 71.89, 77.28, 82.55, 76.75, 67.99, 58.16, 78.76]
 
-# # Data from test results - Run 6 (TEMPLATE - Uncomment and fill in data)
-# delays_run6 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
-# loss_percent_run6 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
-
-# # Data from test results - Run 7 (TEMPLATE - Uncomment and fill in data)
-# delays_run7 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
-# loss_percent_run7 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
-
-# # Data from test results - Run 8 (TEMPLATE - Uncomment and fill in data)
-# delays_run8 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
-# loss_percent_run8 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
-
-# # Data from test results - Run 9 (TEMPLATE - Uncomment and fill in data)
-# delays_run9 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
-# loss_percent_run9 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
-
-# # Data from test results - Run 10 (TEMPLATE - Uncomment and fill in data)
-# delays_run10 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
-# loss_percent_run10 = [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
+# Data from test results - Run 6
+delays_run6 = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+loss_percent_run6 = [1.25, 0.00, 0.25, 0.00, 0.00, 0.00, 0.34, 0.00, 58.59, 71.22, 77.13, 81.93, 87.64, 91.14, 89.68, 93.78, 95.02, 86.78, 70.01, 88.37, 90.25]
 
 # Create the plot
 plt.figure(figsize=(14, 8))
 plt.plot(delays_run1, loss_percent_run1, 'ro-', linewidth=2, markersize=8, label='Run 1', alpha=0.7)
-# plt.plot(delays_run2, loss_percent_run2, 'bs-', linewidth=2, markersize=8, label='Run 2', alpha=0.7)
-# plt.plot(delays_run3, loss_percent_run3, 'g^-', linewidth=2, markersize=8, label='Run 3', alpha=0.7)
-# plt.plot(delays_run4, loss_percent_run4, 'md-', linewidth=2, markersize=8, label='Run 4', alpha=0.7)
+plt.plot(delays_run2, loss_percent_run2, 'bs-', linewidth=2, markersize=8, label='Run 2', alpha=0.7)
+plt.plot(delays_run3, loss_percent_run3, 'g^-', linewidth=2, markersize=8, label='Run 3', alpha=0.7)
+plt.plot(delays_run4, loss_percent_run4, 'md-', linewidth=2, markersize=8, label='Run 4', alpha=0.7)
 plt.plot(delays_run5, loss_percent_run5, 'cv-', linewidth=2, markersize=8, label='Run 5', alpha=0.7)
-# plt.plot(delays_run6, loss_percent_run6, 'yo-', linewidth=2, markersize=8, label='Run 6', alpha=0.7)  # Uncomment for Run 6
-# plt.plot(delays_run7, loss_percent_run7, 'ks-', linewidth=2, markersize=8, label='Run 7', alpha=0.7)  # Uncomment for Run 7
-# plt.plot(delays_run8, loss_percent_run8, color='orange', marker='^', linestyle='-', linewidth=2, markersize=8, label='Run 8', alpha=0.7)  # Uncomment for Run 8
-# plt.plot(delays_run9, loss_percent_run9, color='brown', marker='s', linestyle='-', linewidth=2, markersize=8, label='Run 9', alpha=0.7)  # Uncomment for Run 9
-# plt.plot(delays_run10, loss_percent_run10, color='purple', marker='p', linestyle='-', linewidth=2, markersize=8, label='Run 10', alpha=0.7)  # Uncomment for Run 10
+plt.plot(delays_run6, loss_percent_run6, 'yo-', linewidth=2, markersize=8, label='Run 6', alpha=0.7)
 
 # Add grid
 plt.grid(True, alpha=0.3)
@@ -65,7 +131,7 @@ plt.grid(True, alpha=0.3)
 # Labels and title
 plt.xlabel('Delay (ms)', fontsize=12, fontweight='bold')
 plt.ylabel('Loss %', fontsize=12, fontweight='bold')
-plt.title('Packet Loss % vs Delay', fontsize=14, fontweight='bold')
+plt.title('Packet Loss % vs Delay - Comparison of Two Test Runs', fontsize=14, fontweight='bold')
 
 # Add horizontal line at 0% loss for reference
 plt.axhline(y=0, color='g', linestyle='--', alpha=0.5, label='0% Loss Reference')
@@ -77,10 +143,7 @@ plt.gca().invert_xaxis()
 plt.legend(fontsize=11, loc='upper right')
 
 # Set y-axis to start at 0
-plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run5)) * 1.1)
-
-#plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run2), max(loss_percent_run3), max(loss_percent_run4), max(loss_percent_run5)) * 1.1)
-# plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run2), max(loss_percent_run3), max(loss_percent_run4), max(loss_percent_run5), max(loss_percent_run6)) * 1.1)  # Uncomment and add more runs as needed
+plt.ylim(-2, max(max(loss_percent_run1), max(loss_percent_run2), max(loss_percent_run3), max(loss_percent_run4), max(loss_percent_run5), max(loss_percent_run6)) * 1.1)
 
 # Adjust layout
 plt.tight_layout()
@@ -89,3 +152,33 @@ plt.tight_layout()
 plt.savefig('loss_rate_vs_delay_comparison.png', dpi=300, bbox_inches='tight')
 print("Plot saved as 'loss_rate_vs_delay_comparison.png'")
 plt.show()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Plot packet loss % vs delay from CSV files or hardcoded data',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Plot data from CSV files
+  %(prog)s result_1.csv result_2.csv result_3.csv
+  
+  # Plot using hardcoded data (no arguments)
+  %(prog)s
+        """
+    )
+    
+    parser.add_argument('files', nargs='*', help='CSV files to plot (output from analyze_pcap.py)')
+    
+    args = parser.parse_args()
+    
+    if args.files:
+        print(f"Plotting data from {len(args.files)} file(s)...")
+        plot_from_files(args.files)
+    else:
+        print("No files specified, using hardcoded data...")
+        plot_hardcoded()
+
+
+if __name__ == "__main__":
+    main()
