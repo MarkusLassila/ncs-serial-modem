@@ -2,6 +2,9 @@
 """
 TCP Echo Test over PPP interface
 Sends 1KB packets to echo server and receives them back
+
+Default test range: 150ms to 80ms delay (most important range)
+For full range testing (200ms to 0ms), use: --start 200 --min 0
 """
 
 import socket
@@ -266,18 +269,51 @@ def run_single_test(delay_ms):
 def main():
     """Main function - runs tests with decreasing delays"""
     # Parse command line arguments
-    if len(sys.argv) >= 2:
-        global SERVER_HOST
-        SERVER_HOST = sys.argv[1]
-    if len(sys.argv) >= 3:
-        global SERVER_PORT
-        SERVER_PORT = int(sys.argv[2])
+    import argparse
+    parser = argparse.ArgumentParser(
+        description='TCP Echo Test over PPP interface',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run focused test (150ms to 80ms, default)
+  %(prog)s
+  
+  # Run full range test (200ms to 0ms)
+  %(prog)s --start 200 --min 0
+  
+  # Custom server and port
+  %(prog)s --server dev2.testncs.com --port 20180
+  
+  # Custom delay range
+  %(prog)s --start 100 --min 50 --step 5
+        """
+    )
     
-    # Test parameters
-    start_delay = 200  # Start at 200ms
-    delay_step = 10    # Decrease by 10ms each iteration
-    min_delay = 0      # Minimum delay
-    pause_between_tests = 3  # Seconds to wait between tests
+    parser.add_argument('--server', type=str, default=SERVER_HOST,
+                       help=f'Echo server hostname/IP (default: {SERVER_HOST})')
+    parser.add_argument('--port', type=int, default=SERVER_PORT,
+                       help=f'Echo server port (default: {SERVER_PORT})')
+    parser.add_argument('--start', type=int, default=150,
+                       help='Starting delay in ms (default: 150)')
+    parser.add_argument('--min', type=int, default=80,
+                       help='Minimum delay in ms (default: 80)')
+    parser.add_argument('--step', type=int, default=10,
+                       help='Delay step in ms (default: 10)')
+    parser.add_argument('--pause', type=int, default=3,
+                       help='Pause between tests in seconds (default: 3)')
+    
+    args = parser.parse_args()
+    
+    # Apply settings
+    global SERVER_HOST, SERVER_PORT
+    SERVER_HOST = args.server
+    SERVER_PORT = args.port
+    
+    # Test parameters - focused on most important range (150ms to 80ms)
+    start_delay = args.start
+    delay_step = args.step
+    min_delay = args.min
+    pause_between_tests = args.pause
     
     print(f"{'='*80}")
     print(f"TCP Echo Test Suite via {INTERFACE}")

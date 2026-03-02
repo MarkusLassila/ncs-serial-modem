@@ -9,6 +9,30 @@ import csv
 import sys
 import argparse
 import os
+import glob
+
+def get_next_plot_filename(base_name="throughput_vs_delay", extension="png"):
+    """Find the next available filename with auto-incrementing number"""
+    pattern = f"{base_name}_*.{extension}"
+    existing_files = glob.glob(pattern)
+    
+    if not existing_files:
+        return f"{base_name}_1.{extension}"
+    
+    # Extract numbers from existing files
+    numbers = []
+    for filename in existing_files:
+        try:
+            num_str = filename[len(base_name)+1:-len(extension)-1]
+            numbers.append(int(num_str))
+        except (ValueError, IndexError):
+            continue
+    
+    if not numbers:
+        return f"{base_name}_1.{extension}"
+    
+    next_num = max(numbers) + 1
+    return f"{base_name}_{next_num}.{extension}"
 
 def load_run_from_csv(filename):
     """Load run data from CSV file"""
@@ -25,7 +49,7 @@ def load_run_from_csv(filename):
     
     return delays, duration, transmitted
 
-def plot_from_files(files):
+def plot_from_files(files, output_file=None):
     """Plot data from multiple CSV files"""
     # Define color and marker styles
     styles = [
@@ -89,11 +113,13 @@ def plot_from_files(files):
     plt.tight_layout()
     
     # Save and show
-    plt.savefig('throughput_vs_delay_comparison.png', dpi=300, bbox_inches='tight')
-    print("\nPlot saved as 'throughput_vs_delay_comparison.png'")
+    if output_file is None:
+        output_file = get_next_plot_filename("throughput_vs_delay")
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"\nPlot saved as '{output_file}'")
     plt.show()
 
-def plot_hardcoded():
+def plot_hardcoded(output_file=None):
     """Plot using hardcoded data (legacy mode)"""
 
 # Run 1 data
@@ -165,8 +191,10 @@ ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.1f}K'))
 plt.tight_layout()
 
 # Save and show
-plt.savefig('throughput_vs_delay_comparison.png', dpi=300, bbox_inches='tight')
-print("Plot saved as 'throughput_vs_delay_comparison.png'")
+if output_file is None:
+    output_file = get_next_plot_filename("throughput_vs_delay")
+plt.savefig(output_file, dpi=300, bbox_inches='tight')
+print(f"Plot saved as '{output_file}'")
 
 # Print some statistics
 print(f"\nRun 1 - Throughput Statistics:")
@@ -217,15 +245,17 @@ Examples:
     )
     
     parser.add_argument('files', nargs='*', help='CSV files to plot (output from analyze_pcap.py)')
+    parser.add_argument('-o', '--output', type=str, default=None,
+                       help='Output PNG file (default: auto-numbered throughput_vs_delay_N.png)')
     
     args = parser.parse_args()
     
     if args.files:
         print(f"Plotting data from {len(args.files)} file(s)...")
-        plot_from_files(args.files)
+        plot_from_files(args.files, args.output)
     else:
         print("No files specified, using hardcoded data...")
-        plot_hardcoded()
+        plot_hardcoded(args.output)
 
 
 if __name__ == "__main__":
