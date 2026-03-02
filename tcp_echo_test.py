@@ -268,6 +268,8 @@ def run_single_test(delay_ms):
 
 def main():
     """Main function - runs tests with decreasing delays"""
+    global SERVER_HOST, SERVER_PORT
+    
     # Parse command line arguments
     import argparse
     parser = argparse.ArgumentParser(
@@ -305,7 +307,6 @@ Examples:
     args = parser.parse_args()
     
     # Apply settings
-    global SERVER_HOST, SERVER_PORT
     SERVER_HOST = args.server
     SERVER_PORT = args.port
     

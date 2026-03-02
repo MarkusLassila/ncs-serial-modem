@@ -17,6 +17,7 @@ static K_SEM_DEFINE(tx_idle_sem, 0, 1);
 
 static trace_backend_processed_cb trace_processed_callback;
 static struct modem_pipe *trace_pipe;
+static bool flow_control;
 
 static void modem_pipe_event_handler(struct modem_pipe *pipe,
 				     enum modem_pipe_event event, void *user_data)
@@ -70,6 +71,7 @@ void sm_trace_backend_detach(void)
 	if (trace_pipe) {
 		modem_pipe_release(trace_pipe);
 		trace_pipe = NULL;
+		flow_control = false;
 	}
 }
 
@@ -92,14 +94,14 @@ int trace_backend_write(const void *data, size_t len)
 	 * overflowing. Even if we drop the fragment.
 	 */
 
-	if (k_sem_take(&tx_idle_sem, K_MSEC(CONFIG_SM_MODEM_TRACE_CMUX_TX_TIMEOUT_MS)) != 0) {
-		if (IS_ENABLED(CONFIG_SM_MODEM_TRACE_DROP_ON_TIMEOUT)) {
+	if (flow_control) {
+		ret = k_sem_take(&tx_idle_sem, K_MSEC(CONFIG_SM_MODEM_TRACE_CMUX_TX_TIMEOUT_MS));
+		if (ret) {
 			LOG_WRN_RATELIMIT("Timeout, dropping %u bytes.", len);
 			trace_processed_callback(len);
 			return len;
 		}
-		LOG_WRN_RATELIMIT("TX timeout.");
-		return -EAGAIN;
+		flow_control = false;
 	}
 
 	ret = modem_pipe_transmit(trace_pipe, data, len);
@@ -108,6 +110,8 @@ int trace_backend_write(const void *data, size_t len)
 		trace_processed_callback(len);
 		return ret;
 	} else if (ret == 0) {
+		flow_control = true;
+		LOG_WRN_RATELIMIT("Flow control active");
 		return -EAGAIN;
 	}
 	trace_processed_callback(ret);
