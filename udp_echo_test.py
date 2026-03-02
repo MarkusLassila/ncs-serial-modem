@@ -104,7 +104,6 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
         
         def sender_thread():
             """Send packets with specified delay"""
-            print(f"[SENDER] Thread started")
             for seq in range(1, num_packets + 1):
                 try:
                     packet = create_packet(seq, packet_size, delay_ms if seq == 1 else None)
@@ -115,77 +114,48 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
                     sent_successfully = False
                     for retry in range(max_retries):
                         try:
-                            if seq == 11 or seq % 10 == 1:
-                                print(f"[SENDER] Calling sendto for packet {seq}, attempt {retry+1}")
                             sock.sendto(packet, (server_host, server_port))
-                            if seq == 11 or seq % 10 == 1:
-                                print(f"[SENDER] sendto succeeded for packet {seq}")
                             sent_successfully = True
                             break  # Success
                         except BlockingIOError:
                             # Socket buffer full, wait a bit and retry
-                            print(f"[SENDER] Socket buffer full for packet {seq}, retry {retry+1}/{max_retries}")
                             if retry < max_retries - 1:
                                 time.sleep(0.01)  # 10ms wait
                             else:
-                                print(f"[SENDER] Failed to send packet {seq} after {max_retries} retries")
+                                print(f"Failed to send packet {seq} after {max_retries} retries")
                                 raise
                     
                     if not sent_successfully:
-                        print(f"[SENDER] ERROR: Failed to send packet {seq}")
                         break
                     
-                    if seq == 11 or seq % 10 == 1:
-                        print(f"[SENDER] Acquiring sent_lock for packet {seq}...")
                     with sent_lock:
-                        if seq == 11 or seq % 10 == 1:
-                            print(f"[SENDER] Lock acquired, updating sent_packets for packet {seq}")
                         sent_packets[seq] = send_time
-                        if seq == 11 or seq % 10 == 1:
-                            print(f"[SENDER] sent_packets updated for packet {seq}")
-                    if seq == 11 or seq % 10 == 1:
-                        print(f"[SENDER] Lock released for packet {seq}")
                     
-                    if seq % 10 == 0 or seq == num_packets:
+                    if seq % 50 == 0 or seq == num_packets:
                         with recv_lock:
                             recv_count = len(received_packets)
-                        print(f"[SENDER] Sent packet {seq}/{num_packets}, Received {recv_count}")
+                        print(f"Sent {seq}/{num_packets} packets, Received {recv_count} echoes")
                     
                     # Delay before next packet (except after last one)
                     if seq < num_packets:
-                        if seq % 10 == 0:
-                            print(f"[SENDER] Sleeping for {delay_ms}ms before packet {seq+1}...")
                         time.sleep(delay_ms / 1000.0)
-                        if seq % 10 == 0:
-                            print(f"[SENDER] Sleep complete, continuing...")
                         
                 except Exception as e:
-                    print(f"[SENDER] ERROR sending packet {seq}: {e}")
+                    print(f"Error sending packet {seq}: {e}")
                     import traceback
                     traceback.print_exc()
                     break
             
             # Signal that sending is complete
-            print(f"[SENDER] All packets sent, setting completion flag")
             sending_complete.set()
-            print(f"[SENDER] Thread exiting")
         
         def receiver_thread():
             """Receive echo packets continuously"""
             MAX_RTT_SECONDS = 2.0  # Treat packets taking >2s as lost
             last_activity_time = time.time()
-            loop_count = 0
-            
-            print(f"[RECEIVER] Thread started")
             
             while not stop_receiving.is_set():
                 try:
-                    loop_count += 1
-                    if loop_count % 500 == 0:
-                        with recv_lock:
-                            recv_count = len(received_packets)
-                        print(f"[RECEIVER] Loop iteration {loop_count}, received {recv_count} packets")
-                    
                     # Try to receive data (non-blocking)
                     try:
                         data, addr = sock.recvfrom(4096)
@@ -196,44 +166,28 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
                         if len(data) >= 4:
                             recv_seq = struct.unpack('!I', data[:4])[0]
                             
-                            if recv_seq == 11 or recv_seq % 10 == 1:
-                                print(f"[RECEIVER] Parsed seq {recv_seq}, acquiring sent_lock...")
-                            
                             # Get send_time without holding lock for long
                             send_time = None
                             with sent_lock:
-                                if recv_seq == 11 or recv_seq % 10 == 1:
-                                    print(f"[RECEIVER] sent_lock acquired for seq {recv_seq}")
                                 if recv_seq in sent_packets:
                                     send_time = sent_packets[recv_seq]
-                                if recv_seq == 11 or recv_seq % 10 == 1:
-                                    print(f"[RECEIVER] sent_lock released for seq {recv_seq}")
                             
                             if send_time is not None:
                                 rtt = (recv_time - send_time) * 1000  # RTT in ms
                                 
                                 # Only count packets that came back within 2 seconds
                                 if (recv_time - send_time) <= MAX_RTT_SECONDS:
-                                    if recv_seq == 11 or recv_seq % 10 == 1:
-                                        print(f"[RECEIVER] Acquiring recv_lock for seq {recv_seq}...")
-                                    
                                     with recv_lock:
-                                        if recv_seq == 11 or recv_seq % 10 == 1:
-                                            print(f"[RECEIVER] recv_lock acquired for seq {recv_seq}")
                                         received_packets[recv_seq] = (recv_time, rtt)
                                         total_received = len(received_packets)
-                                        if recv_seq == 11 or recv_seq % 10 == 1:
-                                            print(f"[RECEIVER] recv_lock released for seq {recv_seq}")
                                     
-                                    if total_received % 10 == 0:
+                                    if total_received % 50 == 0:
                                         with sent_lock:
                                             total_sent = len(sent_packets)
-                                        print(f"[RECEIVER] Received packet {recv_seq}, RTT={rtt:.2f}ms, Progress: {total_received}/{total_sent}")
+                                        print(f"Received {total_received}/{total_sent} echoes")
                                 else:
                                     # Packet took too long, treat as lost
-                                    print(f"[RECEIVER] Packet {recv_seq} RTT {rtt:.0f}ms > 2s, treating as lost")
-                            else:
-                                print(f"[RECEIVER] Warning: Received unexpected sequence {recv_seq}")
+                                    print(f"Packet {recv_seq} RTT {rtt:.0f}ms > 2s, treating as lost")
                     
                     except BlockingIOError:
                         # No data available (normal), just continue
@@ -244,13 +198,6 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
                     
                     # Check if we should stop
                     if sending_complete.is_set():
-                        if loop_count % 100 == 0:
-                            with sent_lock:
-                                total_sent = len(sent_packets)
-                            with recv_lock:
-                                total_received = len(received_packets)
-                            print(f"[RECEIVER] Sending complete, checking: Sent={total_sent}, Received={total_received}")
-                        
                         with sent_lock:
                             total_sent = len(sent_packets)
                         with recv_lock:
@@ -258,44 +205,32 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
                         
                         # Stop if we got all packets or no activity for TIMEOUT_SEC
                         if total_received >= total_sent:
-                            print(f"[RECEIVER] All packets received, exiting")
                             break
                         if time.time() - last_activity_time > TIMEOUT_SEC:
-                            print(f"[RECEIVER] Timeout reached (got {total_received}/{total_sent})")
+                            print(f"Receive timeout (got {total_received}/{total_sent})")
                             break
                         
                 except Exception as e:
                     if not stop_receiving.is_set():
-                        print(f"[RECEIVER] ERROR: {e}")
+                        print(f"Receiver error: {e}")
                         import traceback
                         traceback.print_exc()
                     break
-            
-            print(f"[RECEIVER] Thread exiting")
         
         # Start receiver first, then sender
         recv_thread = threading.Thread(target=receiver_thread, daemon=True)
         send_thread = threading.Thread(target=sender_thread, daemon=True)
         
-        print(f"[MAIN] Starting receiver thread...")
         recv_thread.start()
-        print(f"[MAIN] Receiver thread started, waiting 0.1s...")
         time.sleep(0.1)  # Small delay to ensure receiver is ready
-        print(f"[MAIN] Starting sender thread...")
         send_thread.start()
-        print(f"[MAIN] Sender thread started")
         
         # Wait for sender to complete
-        print(f"[MAIN] Waiting for sender to complete...")
         send_thread.join()
-        print(f"[MAIN] Sender thread completed")
         
         # Wait for receiver to complete (with timeout)
-        print(f"[MAIN] Waiting for receiver to complete (timeout={TIMEOUT_SEC + 2}s)...")
         recv_thread.join(timeout=TIMEOUT_SEC + 2)
-        print(f"[MAIN] Receiver join completed")
         stop_receiving.set()
-        print(f"[MAIN] Stop flag set")
         
         end_time = time.time()
         total_time = end_time - start_time
