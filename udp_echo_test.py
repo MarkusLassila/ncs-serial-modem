@@ -29,7 +29,7 @@ SERVER_HOST = "dev2.testncs.com"
 SERVER_PORT = 21185
 TCP_CONTROL_PORT = 20180
 INTERFACE = "ppp0"
-PACKET_SIZE = 125        # Default: ~12.5 Kbps with 80ms delay
+PACKET_SIZE = 100        # Default: ~10 Kbps with 80ms delay
 NUM_PACKETS = 200
 SEND_DELAY_MS = 80       # 80ms delay between packets
 TIMEOUT_SEC = 5.0        # Socket timeout for receiving
@@ -141,17 +141,19 @@ def create_packet(seq_num, size=PACKET_SIZE, delay_ms=None):
     else:
         return header[:size]  # Truncate if header too long
 
-def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_label=None):
+def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_data_size=20*1024, test_label=None):
     """Run UDP echo test with specified parameters"""
     print(f"\n{'='*60}")
     if test_label:
         print(f"{test_label}")
         print(f"{'='*60}")
     print(f"UDP Echo Test Configuration:")
-    print(f"  Packet size: {packet_size} bytes")
-    print(f"  Delay: {delay_ms}ms")
-    print(f"  Number of packets: {num_packets}")
-    print(f"  Target speed: ~{(packet_size * 8 * 1000 / delay_ms):.1f} bps")
+    print(f"  UDP Packet size: {packet_size} bytes")
+    print(f"  UDP Delay: {delay_ms}ms")
+    print(f"  Number of UDP packets: {num_packets}")
+    print(f"  UDP Target speed: ~{(packet_size * 8 * 1000 / delay_ms):.1f} bps")
+    print(f"  TCP Data size: {tcp_data_size/1024:.0f} KB")
+    print(f"  TCP Speed: {TCP_SPEED_KBPS} kbps")
     print(f"  Server: {server_host}:{server_port}")
     print(f"{'='*60}\n")
     
@@ -190,7 +192,7 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
         # Start TCP uplink thread
         tcp_thread = threading.Thread(
             target=tcp_uplink_thread,
-            args=(server_host, TCP_CONTROL_PORT, TCP_DATA_SIZE, TCP_SPEED_KBPS, tcp_trigger, tcp_stop),
+            args=(server_host, TCP_CONTROL_PORT, tcp_data_size, TCP_SPEED_KBPS, tcp_trigger, tcp_stop),
             daemon=True
         )
         tcp_thread.start()
@@ -375,6 +377,7 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
         # Return statistics for aggregation
         return {
             'packet_size': packet_size,
+            'tcp_data_size': tcp_data_size,
             'delay_ms': delay_ms,
             'total_time': total_time,
             'sent': len(sent_packets),
@@ -415,12 +418,13 @@ def save_results(results, output_file=None):
     
     with open(output_file, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['Packet_Size', 'Delay_ms', 'Duration_s', 'Transmitted', 
+        writer.writerow(['TCP_Data_KB', 'UDP_Packet_Size', 'Delay_ms', 'Duration_s', 'Transmitted', 
                         'Received', 'Lost', 'Loss_pct', 'Avg_RTT_ms', 'Throughput_bps'])
         
         for r in results:
             if r:  # Skip None results
                 writer.writerow([
+                    f"{r['tcp_data_size']/1024:.0f}",
                     r['packet_size'],
                     r['delay_ms'],
                     f"{r['total_time']:.2f}",
@@ -439,28 +443,31 @@ def main():
     global SERVER_HOST, SERVER_PORT
     
     parser = argparse.ArgumentParser(
-        description='UDP Echo Test - Test UDP packet loss and latency over PPP',
+        description='UDP Echo Test - Test UDP packet loss and latency with concurrent TCP traffic',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                           # Default: sweep 100-200 bytes, 80ms delay
-  %(prog)s --size 125                # Single test: 125 byte packets
-  %(prog)s --start 120 --end 160     # Sweep from 120 to 160 bytes
-  %(prog)s --step 5                  # Sweep with 5 byte increments
-  %(prog)s --delay 100               # 100ms delay between packets
-  %(prog)s --packets 500             # Send 500 packets per size
+  %(prog)s                           # Default: sweep TCP 10-50 KB, UDP 125 bytes
+  %(prog)s --tcp-size 20             # Single test: 20 KB TCP data
+  %(prog)s --tcp-start 15 --tcp-end 40  # Sweep TCP from 15 to 40 KB
+  %(prog)s --tcp-step 5              # Sweep with 5 KB increments
+  %(prog)s --udp-size 150            # UDP packet size (default: 125 bytes)
+  %(prog)s --delay 100               # 100ms delay between UDP packets
+  %(prog)s --packets 500             # Send 500 UDP packets per test
   %(prog)s -o mytest.csv             # Save results to specific file
         """
     )
     
-    parser.add_argument('--size', type=int, default=None,
-                       help='Single packet size in bytes (disables sweep mode)')
-    parser.add_argument('--start', type=int, default=100,
-                       help='Starting packet size for sweep (default: 100)')
-    parser.add_argument('--end', type=int, default=200,
-                       help='Ending packet size for sweep (default: 200)')
-    parser.add_argument('--step', type=int, default=10,
-                       help='Packet size increment for sweep (default: 10)')
+    parser.add_argument('--tcp-size', type=int, default=None,
+                       help='Single TCP data size in KB (disables sweep mode)')
+    parser.add_argument('--tcp-start', type=int, default=10,
+                       help='Starting TCP data size for sweep in KB (default: 10)')
+    parser.add_argument('--tcp-end', type=int, default=50,
+                       help='Ending TCP data size for sweep in KB (default: 50)')
+    parser.add_argument('--tcp-step', type=int, default=5,
+                       help='TCP data size increment for sweep in KB (default: 5)')
+    parser.add_argument('--udp-size', type=int, default=PACKET_SIZE,
+                       help=f'UDP packet size in bytes (default: {PACKET_SIZE})')
     parser.add_argument('--delay', type=int, default=SEND_DELAY_MS,
                        help=f'Delay between packets in ms (default: {SEND_DELAY_MS})')
     parser.add_argument('--packets', type=int, default=NUM_PACKETS,
@@ -480,32 +487,36 @@ Examples:
     
     results = []
     
-    if args.size is not None:
-        # Single packet size mode
-        if args.size < 12:
-            print("Error: Packet size must be at least 12 bytes (for header)")
-            sys.exit(1)
-        if args.size > 1472:
-            print("Warning: Packet size > 1472 may cause IP fragmentation")
-        
-        result = run_test(args.delay, args.size, args.packets, args.server, args.port)
+    # Validate UDP packet size
+    if args.udp_size < 12:
+        print("Error: UDP packet size must be at least 12 bytes (for header)")
+        sys.exit(1)
+    if args.udp_size > 1472:
+        print("Warning: UDP packet size > 1472 may cause IP fragmentation")
+    
+    if args.tcp_size is not None:
+        # Single TCP size mode
+        tcp_data_size = args.tcp_size * 1024  # Convert KB to bytes
+        result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size)
         if result:
             results.append(result)
     else:
-        # Sweep mode (default)
-        packet_sizes = range(args.start, args.end + 1, args.step)
-        total_tests = len(list(packet_sizes))
+        # Sweep mode (default) - sweep TCP data sizes
+        tcp_sizes_kb = range(args.tcp_start, args.tcp_end + 1, args.tcp_step)
+        total_tests = len(list(tcp_sizes_kb))
         
         print(f"\n{'#'*60}")
-        print(f"UDP ECHO TEST SUITE")
+        print(f"UDP ECHO TEST SUITE WITH TCP TRAFFIC")
         print(f"{'#'*60}")
-        print(f"Running {total_tests} tests with packet sizes from {args.start} to {args.end} bytes")
-        print(f"Increment: {args.step} bytes, Delay: {args.delay}ms, Packets per test: {args.packets}")
+        print(f"Running {total_tests} tests with TCP data sizes from {args.tcp_start} to {args.tcp_end} KB")
+        print(f"TCP Increment: {args.tcp_step} KB, TCP Speed: {TCP_SPEED_KBPS} kbps")
+        print(f"UDP Packet size: {args.udp_size} bytes, Delay: {args.delay}ms, Packets per test: {args.packets}")
         print(f"{'#'*60}\n")
         
-        for idx, size in enumerate(packet_sizes, 1):
-            test_label = f"Test {idx}/{total_tests}: Packet size {size} bytes"
-            result = run_test(args.delay, size, args.packets, args.server, args.port, test_label)
+        for idx, tcp_size_kb in enumerate(tcp_sizes_kb, 1):
+            tcp_data_size = tcp_size_kb * 1024  # Convert KB to bytes
+            test_label = f"Test {idx}/{total_tests}: TCP data size {tcp_size_kb} KB"
+            result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, test_label)
             if result:
                 results.append(result)
             
@@ -522,10 +533,10 @@ Examples:
         print(f"\n{'#'*60}")
         print(f"TEST SUITE SUMMARY")
         print(f"{'#'*60}")
-        print(f"{'Size(B)':<10} {'Loss%':<10} {'RTT(ms)':<12} {'Speed(bps)':<15}")
+        print(f"{'TCP(KB)':<10} {'UDP(B)':<10} {'Loss%':<10} {'RTT(ms)':<12} {'Speed(bps)':<15}")
         print(f"{'-'*60}")
         for r in results:
-            print(f"{r['packet_size']:<10} {r['loss_pct']:<10.2f} {r['avg_rtt']:<12.2f} {r['throughput_bps']:<15.1f}")
+            print(f"{r['tcp_data_size']/1024:<10.0f} {r['packet_size']:<10} {r['loss_pct']:<10.2f} {r['avg_rtt']:<12.2f} {r['throughput_bps']:<15.1f}")
         print(f"{'#'*60}\n")
     else:
         print("\nNo test results to save.")
