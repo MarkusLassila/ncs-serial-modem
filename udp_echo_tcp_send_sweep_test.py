@@ -141,8 +141,12 @@ def create_packet(seq_num, size=PACKET_SIZE, delay_ms=None):
     else:
         return header[:size]  # Truncate if header too long
 
-def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_data_size=20*1024, test_label=None):
-    """Run UDP echo test with specified parameters"""
+def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_data_size=20*1024, seq_offset=0, test_label=None):
+    """Run UDP echo test with specified parameters
+    
+    Args:
+        seq_offset: Starting sequence number (for continuous numbering across batches)
+    """
     print(f"\n{'='*60}")
     if test_label:
         print(f"{test_label}")
@@ -151,6 +155,7 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_d
     print(f"  UDP Packet size: {packet_size} bytes")
     print(f"  UDP Delay: {delay_ms}ms")
     print(f"  Number of UDP packets: {num_packets}")
+    print(f"  Sequence range: {seq_offset + 1} to {seq_offset + num_packets}")
     print(f"  UDP Target speed: ~{(packet_size * 8 * 1000 / delay_ms):.1f} bps")
     print(f"  TCP Data size: {tcp_data_size/1024:.0f} KB")
     print(f"  TCP Speed: {TCP_SPEED_KBPS} kbps")
@@ -208,7 +213,8 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_d
             
             for seq in range(1, num_packets + 1):
                 try:
-                    packet = create_packet(seq, packet_size, delay_ms if seq == 1 else None)
+                    actual_seq = seq_offset + seq  # Apply offset for continuous numbering
+                    packet = create_packet(actual_seq, packet_size, delay_ms if seq == 1 else None)
                     send_time = time.time()
                     
                     # Retry sendto if socket buffer is full
@@ -224,26 +230,26 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_d
                             if retry < max_retries - 1:
                                 time.sleep(0.01)  # 10ms wait
                             else:
-                                print(f"Failed to send packet {seq} after {max_retries} retries")
+                                print(f"Failed to send packet {actual_seq} after {max_retries} retries")
                                 raise
                     
                     if not sent_successfully:
                         break
                     
                     with sent_lock:
-                        sent_packets[seq] = send_time
+                        sent_packets[actual_seq] = send_time
                     
                     if seq % 50 == 0 or seq == num_packets:
                         with recv_lock:
                             recv_count = len(received_packets)
-                        print(f"Sent {seq}/{num_packets} packets, Received {recv_count} echoes")
+                        print(f"Sent {actual_seq}/{seq_offset + num_packets} packets, Received {recv_count} echoes")
                     
                     # Delay before next packet (except after last one)
                     if seq < num_packets:
                         time.sleep(delay_ms / 1000.0)
                         
                 except Exception as e:
-                    print(f"Error sending packet {seq}: {e}")
+                    print(f"Error sending packet {actual_seq}: {e}")
                     import traceback
                     traceback.print_exc()
                     break
@@ -494,12 +500,15 @@ Examples:
     if args.udp_size > 1472:
         print("Warning: UDP packet size > 1472 may cause IP fragmentation")
     
+    seq_offset = 0  # Track cumulative sequence numbers across tests
+    
     if args.tcp_size is not None:
         # Single TCP size mode
         tcp_data_size = args.tcp_size * 1024  # Convert KB to bytes
-        result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size)
+        result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset)
         if result:
             results.append(result)
+            seq_offset += args.packets
     else:
         # Sweep mode (default) - sweep TCP data sizes
         tcp_sizes_kb = range(args.tcp_start, args.tcp_end + 1, args.tcp_step)
@@ -511,14 +520,16 @@ Examples:
         print(f"Running {total_tests} tests with TCP data sizes from {args.tcp_start} to {args.tcp_end} KB")
         print(f"TCP Increment: {args.tcp_step} KB, TCP Speed: {TCP_SPEED_KBPS} kbps")
         print(f"UDP Packet size: {args.udp_size} bytes, Delay: {args.delay}ms, Packets per test: {args.packets}")
+        print(f"Total UDP packets across all tests: {total_tests * args.packets} (seq 1 to {total_tests * args.packets})")
         print(f"{'#'*60}\n")
         
         for idx, tcp_size_kb in enumerate(tcp_sizes_kb, 1):
             tcp_data_size = tcp_size_kb * 1024  # Convert KB to bytes
             test_label = f"Test {idx}/{total_tests}: TCP data size {tcp_size_kb} KB"
-            result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, test_label)
+            result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, test_label)
             if result:
                 results.append(result)
+                seq_offset += args.packets  # Increment for next test
             
             # Small delay between tests
             if idx < total_tests:

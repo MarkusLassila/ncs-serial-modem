@@ -3,11 +3,6 @@
 PCAP Analyzer for UDP Echo Test
 Analyzes UDP packets to calculate packet loss based on sequence numbers
 Groups results by packet size for sweep test analysis
-
-Defaults:
-- Filters UDP port 21185 (UDP echo port)
-- Requires minimum 10 packets per size (filters noise)
-- Skips packet sizes with sequences not starting near 1 (not echo tests)
 """
 
 import sys
@@ -91,7 +86,7 @@ def save_results(filename, results_by_size):
     print(f"\nResults saved to: {filename}")
 
 
-def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
+def analyze_udp_pcap(pcap_file, target_port=None):
     """Analyze PCAP file for UDP packets"""
     print(f"Reading {pcap_file}...")
     
@@ -102,9 +97,6 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
         return None
     
     print(f"Loaded {len(packets)} packets\n")
-    
-    if target_port:
-        print(f"Filtering for UDP port {target_port}")
     
     # Group packets by size
     packets_by_size = defaultdict(list)
@@ -147,32 +139,6 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
     print(f"Found {udp_packet_count} UDP packets")
     print(f"Grouped into {len(packets_by_size)} different packet sizes\n")
     
-    # Filter out noise - packet sizes with too few packets or invalid sequences
-    filtered_sizes = {}
-    for size, pkts in packets_by_size.items():
-        # Get all unique sequence numbers
-        seqs = set(p['seq'] for p in pkts)
-        
-        # Skip if too few packets (likely noise)
-        if len(pkts) < min_packets:
-            print(f"Skipping size {size}B - only {len(pkts)} packet(s) (noise)")
-            continue
-        
-        # Skip if doesn't look like a valid echo test (seq doesn't start near 1)
-        min_seq = min(seqs)
-        if min_seq > 100:  # Allow some flexibility but filter obvious outliers
-            print(f"Skipping size {size}B - sequence starts at {min_seq} (not an echo test)")
-            continue
-        
-        filtered_sizes[size] = pkts
-    
-    if not filtered_sizes:
-        print("No valid UDP echo test data found after filtering\n")
-        return None
-    
-    print(f"Analyzing {len(filtered_sizes)} valid packet size(s)\n")
-    packets_by_size = filtered_sizes
-    
     # Analyze each packet size group
     results_by_size = {}
     
@@ -184,40 +150,55 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
         print(f"{'='*60}")
         
         # Separate client->server and server->client
-        # In UDP echo tests, client sends TO server port, server echoes FROM server port
-        # This handles multiple test runs with different client source ports
+        # Assume client sends first (lower sequence numbers initially)
+        # Or use port numbers if available
         
-        # Identify server port (most common destination port, or 21185)
-        dest_ports = [p['dport'] for p in pkts]
-        server_port = max(set(dest_ports), key=dest_ports.count) if dest_ports else 21185
+        # Group by direction based on source port
+        by_direction = defaultdict(list)
+        for p in pkts:
+            direction = (p['src'], p['sport'], p['dst'], p['dport'])
+            by_direction[direction].append(p)
         
-        # Group by role: packets TO server_port are client->server
-        client_pkts = [p for p in pkts if p['dport'] == server_port]
-        server_pkts = [p for p in pkts if p['sport'] == server_port]
+        # Find the direction with sending pattern (client to server, then echoes back)
+        # Client direction should have sequential sequence numbers
+        client_to_server = None
+        server_to_client = None
         
-        print(f"Total packets in pcap: {len(pkts)}")
-        print(f"Identified server port: {server_port}")
+        for direction, dir_pkts in by_direction.items():
+            seqs = sorted([p['seq'] for p in dir_pkts])
+            # Direction with seq starting from 1 is likely client->server
+            if seqs and seqs[0] == 1:
+                client_to_server = direction
+                server_to_client = (direction[2], direction[3], direction[0], direction[1])
+                break
         
-        # Get unique source ports (indicates number of test runs/batches)
-        client_src_ports = set(p['sport'] for p in client_pkts)
-        if len(client_src_ports) > 1:
-            print(f"Found {len(client_src_ports)} different client source ports (multiple test runs)")
+        if not client_to_server:
+            # Fallback: direction with more unique sequences
+            client_to_server = max(by_direction.keys(), 
+                                   key=lambda d: len(set(p['seq'] for p in by_direction[d])))
+            server_to_client = None
         
-        # Analyze sequences
+        # Analyze client->server packets (transmitted)
+        client_pkts = by_direction[client_to_server]
         client_seqs = set(p['seq'] for p in client_pkts)
+        
+        # Analyze server->client packets (echoed/received)
+        server_pkts = []
+        if server_to_client and server_to_client in by_direction:
+            server_pkts = by_direction[server_to_client]
+        
         server_seqs = set(p['seq'] for p in server_pkts)
         
         # Calculate statistics
         if client_seqs:
             min_seq = min(client_seqs)
             max_seq = max(client_seqs)
-            expected_total = max_seq - min_seq + 1
+            expected_count = max_seq - min_seq + 1
         else:
-            min_seq = max_seq = expected_total = 0
+            min_seq = max_seq = expected_count = 0
         
-        # Count actual packets
-        client_count = len(client_pkts)
-        server_count = len(server_pkts)
+        captured_count = len(client_seqs)
+        echoed_count = len(server_seqs)
         
         # Calculate timing
         timestamps = [p['timestamp'] for p in client_pkts]
@@ -230,16 +211,17 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
         # If we see echoes, we know server got them, so transmitted = echoed + lost
         # Otherwise, transmitted = expected (based on max seq)
         if server_seqs:
-            # We have echo data
+            # We have echo data - transmitted is what server acknowledged
+            transmitted = expected_count
             # Lost from client perspective = what we expected but didn't capture on client side
-            lost_client = expected_total - client_count
+            lost_client = expected_count - captured_count
             # Lost echoes = what was sent but not echoed back
-            lost_echo = client_count - server_count
+            lost_echo = captured_count - echoed_count
             
             print(f"Sequence range: {min_seq} to {max_seq}")
-            print(f"Expected packets: {expected_total}")
-            print(f"Client->Server captured: {client_count}")
-            print(f"Server->Client echoes: {server_count}")
+            print(f"Expected packets: {expected_count}")
+            print(f"Client->Server captured: {captured_count}")
+            print(f"Server->Client echoes: {echoed_count}")
             print(f"Lost in transit (client->server): {lost_client}")
             print(f"Lost echoes (server->client): {lost_echo}")
             print(f"Total loss: {lost_client + lost_echo}")
@@ -249,28 +231,29 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
                 'packet_size': packet_size,
                 'delay_ms': delay_info.get(packet_size),
                 'duration': duration,
-                'transmitted': expected_total * 2,  # Both directions
-                'captured': client_count + server_count,
+                'transmitted': expected_count * 2,  # Both directions
+                'captured': captured_count + echoed_count,
                 'lost': lost_client + lost_echo,
-                'loss_pct': ((lost_client + lost_echo) / (expected_total * 2) * 100) if expected_total > 0 else 0
+                'loss_pct': ((lost_client + lost_echo) / (expected_count * 2) * 100) if expected_count > 0 else 0
             }
         else:
             # No echo data - only client->server
-            lost = expected_total - client_count
+            transmitted = expected_count
+            lost = expected_count - captured_count
             
             print(f"Sequence range: {min_seq} to {max_seq}")
-            print(f"Expected packets: {expected_total}")
-            print(f"Captured packets: {client_count}")
+            print(f"Expected packets: {expected_count}")
+            print(f"Captured packets: {captured_count}")
             print(f"Lost packets: {lost}")
             
             stats = {
                 'packet_size': packet_size,
                 'delay_ms': delay_info.get(packet_size),
                 'duration': duration,
-                'transmitted': expected_total,
-                'captured': client_count,
+                'transmitted': transmitted,
+                'captured': captured_count,
                 'lost': lost,
-                'loss_pct': (lost / expected_total * 100) if expected_total > 0 else 0
+                'loss_pct': (lost / transmitted * 100) if transmitted > 0 else 0
             }
         
         print(f"Duration: {duration:.2f}s")
@@ -286,24 +269,21 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Analyze UDP PCAP files from UDP echo tests (filters port 21185 by default)',
+        description='Analyze UDP PCAP files from UDP echo tests',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s capture.pcap                    # Analyze UDP echo (port 21185, auto-save)
+  %(prog)s capture.pcap                    # Analyze UDP packets (auto-save)
   %(prog)s capture.pcap -o results.csv     # Save to specific file
-  %(prog)s capture.pcap --port 12345       # Use different UDP port
-  %(prog)s capture.pcap --min-packets 50   # Require 50+ packets per size
+  %(prog)s capture.pcap --port 21185       # Filter by specific UDP port
         """
     )
     
     parser.add_argument('pcap_file', help='PCAP file to analyze')
     parser.add_argument('-o', '--output', type=str, default=None,
                        help='Output CSV file (default: auto-numbered udp_analysis_N.csv)')
-    parser.add_argument('--port', type=int, default=21185,
-                       help='Filter by specific UDP port (default: 21185 for UDP echo)')
-    parser.add_argument('--min-packets', type=int, default=10,
-                       help='Minimum packets per size to analyze (default: 10, filters noise)')
+    parser.add_argument('--port', type=int, default=None,
+                       help='Filter by specific UDP port (default: all UDP traffic)')
     
     args = parser.parse_args()
     
@@ -312,7 +292,7 @@ Examples:
         sys.exit(1)
     
     # Analyze the PCAP file
-    results = analyze_udp_pcap(args.pcap_file, args.port, args.min_packets)
+    results = analyze_udp_pcap(args.pcap_file, args.port)
     
     if not results:
         print("No results to save.")
