@@ -22,104 +22,21 @@ import glob
 import os
 import threading
 from collections import defaultdict
-import queue
 
 # Configuration defaults
 SERVER_HOST = "dev2.testncs.com"
 SERVER_PORT = 21185
-TCP_CONTROL_PORT = 20180
 INTERFACE = "ppp0"
 PACKET_SIZE = 125        # Default: ~12.5 Kbps with 80ms delay
 NUM_PACKETS = 200
 SEND_DELAY_MS = 80       # 80ms delay between packets
 TIMEOUT_SEC = 5.0        # Socket timeout for receiving
-TCP_DATA_SIZE = 20 * 1024  # 20KB per UDP packet
-TCP_SPEED_KBPS = 100     # 100 kbps rate limit
 
 def bind_to_interface(sock, interface):
     """Bind socket to specific network interface"""
     SO_BINDTODEVICE = 25
     sock.setsockopt(socket.SOL_SOCKET, SO_BINDTODEVICE, 
                     interface.encode('utf-8'))
-
-def tcp_uplink_thread(server_host, tcp_port, data_size, speed_kbps, trigger_queue, stop_event):
-    """
-    TCP uplink thread that:
-    1. Sends initial control message to disable loopback
-    2. Sends data_size bytes after each UDP cycle completion
-    Rate limited to speed_kbps
-    """
-    try:
-        # Create TCP socket
-        tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        tcp_sock.settimeout(10.0)
-        
-        # Bind to interface
-        bind_to_interface(tcp_sock, INTERFACE)
-        
-        # Connect to server
-        print(f"TCP: Connecting to {server_host}:{tcp_port}...")
-        tcp_sock.connect((server_host, tcp_port))
-        print(f"TCP: Connected to {server_host}:{tcp_port}")
-        
-        # Send initial control message to disable loopback
-        control_msg = b"enable_ul_data_only"
-        tcp_sock.sendall(control_msg)
-        print(f"TCP: Sent control message: '{control_msg.decode()}'")
-        
-        # Wait for UDP cycle completion signals
-        bytes_per_second = (speed_kbps * 1000) // 8
-        chunk_size = 1024  # Send in 1KB chunks
-        
-        while not stop_event.is_set():
-            try:
-                # Wait for trigger (with timeout to check stop_event)
-                cycle_num = trigger_queue.get(timeout=0.5)
-                
-                print(f"TCP: Starting transmission of {data_size} bytes (cycle {cycle_num})...")
-                bytes_sent = 0
-                start_time = time.time()
-                
-                # Generate and send data in chunks
-                while bytes_sent < data_size and not stop_event.is_set():
-                    # Calculate how much to send
-                    to_send = min(chunk_size, data_size - bytes_sent)
-                    
-                    # Create data chunk (simple pattern)
-                    data = b'T' * to_send
-                    
-                    # Send chunk
-                    chunk_start = time.time()
-                    tcp_sock.sendall(data)
-                    bytes_sent += to_send
-                    
-                    # Rate limiting: sleep to maintain target speed
-                    expected_duration = bytes_sent / bytes_per_second
-                    actual_duration = time.time() - start_time
-                    sleep_time = expected_duration - actual_duration
-                    
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
-                
-                elapsed = time.time() - start_time
-                actual_kbps = (bytes_sent * 8 / 1000) / elapsed if elapsed > 0 else 0
-                print(f"TCP: Sent {bytes_sent} bytes in {elapsed:.2f}s ({actual_kbps:.1f} kbps)")
-                
-            except queue.Empty:
-                # No trigger yet, continue waiting
-                continue
-            except Exception as e:
-                if not stop_event.is_set():
-                    print(f"TCP: Error during transmission: {e}")
-                break
-        
-        print("TCP: Thread stopping...")
-        tcp_sock.close()
-        
-    except Exception as e:
-        print(f"TCP: Connection error: {e}")
-        import traceback
-        traceback.print_exc()
 
 def create_packet(seq_num, size=PACKET_SIZE, delay_ms=None):
     """Create identifiable UDP packet with sequence number"""
@@ -182,28 +99,11 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
         # Control flags
         sending_complete = threading.Event()
         stop_receiving = threading.Event()
-        tcp_stop = threading.Event()
-        tcp_trigger = queue.Queue()
         
         start_time = time.time()
         
-        # Start TCP uplink thread
-        tcp_thread = threading.Thread(
-            target=tcp_uplink_thread,
-            args=(server_host, TCP_CONTROL_PORT, TCP_DATA_SIZE, TCP_SPEED_KBPS, tcp_trigger, tcp_stop),
-            daemon=True
-        )
-        tcp_thread.start()
-        time.sleep(0.5)  # Give TCP time to connect and send control message
-        
         def sender_thread():
             """Send packets with specified delay"""
-            cycle_num = 1
-            
-            # Trigger TCP transmission to start with UDP cycle
-            print(f"UDP: Starting cycle {cycle_num}, triggering TCP transmission")
-            tcp_trigger.put(cycle_num)
-            
             for seq in range(1, num_packets + 1):
                 try:
                     packet = create_packet(seq, packet_size, delay_ms if seq == 1 else None)
@@ -245,8 +145,6 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
                     import traceback
                     traceback.print_exc()
                     break
-            
-            print(f"UDP: Cycle {cycle_num} complete")
             
             # Signal that sending is complete
             sending_complete.set()
@@ -333,10 +231,6 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, test_
         # Wait for receiver to complete (with timeout)
         recv_thread.join(timeout=TIMEOUT_SEC + 2)
         stop_receiving.set()
-        
-        # Wait for TCP thread to finish current transmission
-        tcp_stop.set()
-        tcp_thread.join(timeout=5)
         
         end_time = time.time()
         total_time = end_time - start_time
