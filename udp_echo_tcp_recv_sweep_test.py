@@ -94,30 +94,40 @@ def tcp_downlink_thread(server_host, tcp_port, data_size, speed_kbps, trigger_qu
                 trigger_cmd = {
                     "wait_time": "0",
                     "dl_data_len": str(data_size),
-                    "loops": "1",
-                    "loop_delay": "1",
-                    "random_data": "True",
-                    "insert_packet_number": "True"
+                    "dl_data": str(data_size).encode('ascii').decode('ascii') + "X",
+                    "packet_delay": "120",
+                    "random_data": "False",
+                    "insert_packet_number": "False"
                 }
                 trigger_msg = "trigger_dl_data:" + json.dumps(trigger_cmd)
                 tcp_sock.sendall(trigger_msg.encode())
                 print(f"TCP: Sent trigger: {trigger_msg}")
                 
                 # Receive data from server
+                # Note: Server may send response/ack before data, but we count ALL bytes
                 bytes_received = 0
                 start_time = time.time()
-                timeout_duration = max((data_size * 8 / 1000) / speed_kbps * 3, 10)  # 3x expected time
-                tcp_sock.settimeout(timeout_duration)
+                last_recv_time = start_time
+                # Use per-chunk timeout - generous for rate-limited connection
+                tcp_sock.settimeout(10.0)  # 10 second timeout between chunks
                 
                 while bytes_received < data_size and not stop_event.is_set():
                     try:
                         chunk = tcp_sock.recv(8192)
                         if not chunk:
-                            print(f"TCP: Connection closed by server")
+                            elapsed_now = time.time() - start_time
+                            print(f"TCP: Connection closed by server after {bytes_received} bytes in {elapsed_now:.2f}s")
                             break
                         bytes_received += len(chunk)
+                        last_recv_time = time.time()
+                        if bytes_received % 10240 == 0:  # Log every 10KB
+                            elapsed_now = time.time() - start_time
+                            current_kbps = (bytes_received * 8 / 1000) / elapsed_now if elapsed_now > 0 else 0
+                            print(f"TCP: Received {bytes_received}/{data_size} bytes ({current_kbps:.1f} kbps)...")
                     except socket.timeout:
-                        print(f"TCP: Receive timeout after {bytes_received} bytes")
+                        elapsed_now = time.time() - start_time
+                        time_since_last = time.time() - last_recv_time
+                        print(f"TCP: Timeout after {bytes_received}/{data_size} bytes ({time_since_last:.1f}s since last chunk)")
                         break
                 
                 elapsed = time.time() - start_time
