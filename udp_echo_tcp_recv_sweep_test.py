@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+"""
+UDP Echo Test over PPP interface with TCP Downlink Sweep
+Sends small UDP packets to echo server and receives them back
+Concurrently triggers TCP downlink data from server at varying sizes
+
+Default configuration:
+- Packet delay: 80ms (for consistent timing)
+- Packet size: 100 bytes
+- Target speed: 10 Kbps
+- Port: 21185
+- TCP downlink: Server sends data, size swept from 10-50 KB
+
+With 80ms delay and 100 byte packets: ~10 Kbps
+"""
+
+import socket
+import time
+import struct
+import sys
+import argparse
+import csv
+import glob
+import os
+import threading
+import json
+from collections import defaultdict
+import queue
+
+# Configuration defaults
+SERVER_HOST = "dev2.testncs.com"
+SERVER_PORT = 21185
+TCP_CONTROL_PORT = 20180
+INTERFACE = "ppp0"
+PACKET_SIZE = 100        # Default: ~10 Kbps with 80ms delay
+NUM_PACKETS = 200
+SEND_DELAY_MS = 80       # 80ms delay between packets
+TIMEOUT_SEC = 5.0        # Socket timeout for receiving
+TCP_DATA_SIZE = 20 * 1024  # 20KB per UDP packet
+TCP_SPEED_KBPS = 100     # 100 kbps rate limit
+
+def bind_to_interface(sock, interface):
+    """Bind socket to specific network interface"""
+    SO_BINDTODEVICE = 25
+    sock.setsockopt(socket.SOL_SOCKET, SO_BINDTODEVICE, 
+                    interface.encode('utf-8'))
+
+def tcp_downlink_thread(server_host, tcp_port, data_size, speed_kbps, trigger_queue, stop_event):
+    """
+    TCP downlink thread that:
+    1. Sends initial control message to disable loopback
+    2. Waits 1 second
+    3. Sends trigger_dl_data command to make server send data
+    4. Receives and tracks data from server
+    Rate limited to speed_kbps
+    """
+    try:
+        # Create TCP socket
+        tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_sock.settimeout(10.0)
+        
+        # Bind to interface
+        bind_to_interface(tcp_sock, INTERFACE)
+        
+        # Connect to server
+        print(f"TCP: Connecting to {server_host}:{tcp_port}...")
+        tcp_sock.connect((server_host, tcp_port))
+        print(f"TCP: Connected to {server_host}:{tcp_port}")
+        
+        # Send initial control message to disable loopback
+        control_msg = b"enable_ul_data_only"
+        tcp_sock.sendall(control_msg)
+        print(f"TCP: Sent control message: '{control_msg.decode()}'")
+        
+        # Wait 1 second as specified
+        time.sleep(1)
+        
+        # Wait for UDP cycle completion signals
+        bytes_per_second = (speed_kbps * 1000) // 8
+        
+        while not stop_event.is_set():
+            try:
+                # Wait for trigger (with timeout to check stop_event)
+                cycle_num = trigger_queue.get(timeout=0.5)
+                
+                print(f"TCP: Triggering downlink transmission of {data_size} bytes (batch {cycle_num})...")
+                
+                # Send batch marker so analyzer can detect batch boundaries
+                # Format: 'BTCH' (4 bytes) + cycle_num (4 bytes) + data_size (4 bytes)
+                marker = struct.pack('!4sII', b'BTCH', cycle_num, data_size)
+                tcp_sock.sendall(marker)
+                
+                # Send trigger_dl_data command to server
+                trigger_cmd = {
+                    "wait_time": "0",
+                    "dl_data_len": str(data_size),
+                    "loops": "1",
+                    "loop_delay": "1",
+                    "random_data": "True",
+                    "insert_packet_number": "True"
+                }
+                trigger_msg = "trigger_dl_data:" + json.dumps(trigger_cmd)
+                tcp_sock.sendall(trigger_msg.encode())
+                print(f"TCP: Sent trigger: {trigger_msg}")
+                
+                # Receive data from server
+                bytes_received = 0
+                start_time = time.time()
+                timeout_duration = max((data_size * 8 / 1000) / speed_kbps * 3, 10)  # 3x expected time
+                tcp_sock.settimeout(timeout_duration)
+                
+                while bytes_received < data_size and not stop_event.is_set():
+                    try:
+                        chunk = tcp_sock.recv(8192)
+                        if not chunk:
+                            print(f"TCP: Connection closed by server")
+                            break
+                        bytes_received += len(chunk)
+                    except socket.timeout:
+                        print(f"TCP: Receive timeout after {bytes_received} bytes")
+                        break
+                
+                elapsed = time.time() - start_time
+                actual_kbps = (bytes_received * 8 / 1000) / elapsed if elapsed > 0 else 0
+                bytes_lost = data_size - bytes_received
+                loss_pct = (bytes_lost / data_size * 100) if data_size > 0 else 0
+                
+                print(f"TCP: Received {bytes_received}/{data_size} bytes in {elapsed:.2f}s ({actual_kbps:.1f} kbps)")
+                print(f"TCP: Lost {bytes_lost} bytes ({loss_pct:.1f}% loss)")
+                
+                # Reset timeout for next iteration
+                tcp_sock.settimeout(10.0)
+                
+            except queue.Empty:
+                # No trigger yet, continue waiting
+                continue
+            except Exception as e:
+                if not stop_event.is_set():
+                    print(f"TCP: Error during reception: {e}")
+                break
+        
+        print("TCP: Thread stopping...")
+        tcp_sock.close()
+        
+    except Exception as e:
+        print(f"TCP: Connection error: {e}")
+        import traceback
+        traceback.print_exc()
+
+def create_packet(seq_num, size=PACKET_SIZE, delay_ms=None):
+    """Create identifiable UDP packet with sequence number"""
+    # Header: [SEQ_NUM (4 bytes)][TIMESTAMP (8 bytes)][DELAY_MS (4 bytes if seq==1)]
+    header = struct.pack('!IQ', seq_num, int(time.time() * 1000000))
+    
+    # First packet includes delay_ms for identification in pcap
+    if seq_num == 1 and delay_ms is not None:
+        header += struct.pack('!I', delay_ms)
+        marker = f"DELAY={delay_ms}ms ".encode('utf-8')
+        header += marker
+    
+    # Fill rest with pattern
+    remaining = size - len(header)
+    if remaining > 0:
+        pattern = b'ABCDEFGHIJKLMNOP' * (remaining // 16)
+        padding = b'X' * (remaining % 16)
+        return header + pattern + padding
+    else:
+        return header[:size]  # Truncate if header too long
+
+def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_data_size=20*1024, seq_offset=0, batch_num=1, enable_udp=True, test_label=None):
+    """Run test with TCP traffic and optionally concurrent UDP echo
+    
+    Args:
+        seq_offset: Starting sequence number (for continuous numbering across batches)
+        batch_num: Batch number for TCP marker (for correlation in analyzer)
+        enable_udp: If True, send UDP packets concurrently with TCP (default: True)
+    """
+    print(f"\n{'='*60}")
+    if test_label:
+        print(f"{test_label}")
+        print(f"{'='*60}")
+    if enable_udp:
+        print(f"UDP Echo Test Configuration:")
+        print(f"  UDP Packet size: {packet_size} bytes")
+        print(f"  UDP Delay: {delay_ms}ms")
+        print(f"  Number of UDP packets: {num_packets}")
+        print(f"  Sequence range: {seq_offset + 1} to {seq_offset + num_packets}")
+        print(f"  UDP Target speed: ~{(packet_size * 8 * 1000 / delay_ms):.1f} bps")
+    else:
+        print(f"TCP-Only Test Configuration (UDP disabled):")
+    print(f"  TCP Downlink size: {tcp_data_size/1024:.0f} KB (server sends)")
+    print(f"  TCP Speed limit: {TCP_SPEED_KBPS} kbps")
+    print(f"  Server: {server_host}:{server_port}")
+    print(f"{'='*60}\n")
+    
+    # Create UDP socket only if UDP is enabled
+    sock = None
+    if enable_udp:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Set socket to non-blocking mode to prevent sendto() from blocking
+        sock.setblocking(False)
+        
+        # Increase send buffer to handle bursts
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 256*1024)  # 256KB send buffer
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 256*1024)  # 256KB recv buffer
+        except:
+            pass  # Ignore if can't set buffer size
+    
+    try:
+        if enable_udp:
+            # Bind to ppp0 interface
+            bind_to_interface(sock, INTERFACE)
+            print(f"Bound to {INTERFACE}")
+            print(f"Starting UDP echo test with concurrent send/receive...\n")
+        else:
+            print(f"Starting TCP-only test (no UDP)...\n")
+        
+        # Shared statistics with locks
+        sent_packets = {}      # seq -> send_timestamp
+        received_packets = {}  # seq -> (recv_timestamp, rtt)
+        sent_lock = threading.Lock()
+        recv_lock = threading.Lock()
+        
+        # Control flags
+        sending_complete = threading.Event()
+        stop_receiving = threading.Event()
+        tcp_stop = threading.Event()
+        tcp_trigger = queue.Queue()
+        
+        start_time = time.time()
+        
+        # Start TCP downlink thread
+        tcp_thread = threading.Thread(
+            target=tcp_downlink_thread,
+            args=(server_host, TCP_CONTROL_PORT, tcp_data_size, TCP_SPEED_KBPS, tcp_trigger, tcp_stop),
+            daemon=True
+        )
+        tcp_thread.start()
+        time.sleep(0.5)  # Give TCP time to connect and send control message
+        
+        # If UDP is disabled, just trigger TCP and wait
+        if not enable_udp:
+            print(f"TCP: Starting batch {batch_num} downlink reception")
+            tcp_trigger.put(batch_num)
+            
+            # Wait for TCP to complete (estimate: data_size / speed + margin)
+            expected_duration = (tcp_data_size * 8 / 1000) / TCP_SPEED_KBPS  # seconds
+            timeout = max(expected_duration * 2, 10)  # At least 10s timeout
+            
+            time.sleep(expected_duration + 2)  # Wait for transmission to complete
+            
+            # Stop TCP thread
+            tcp_stop.set()
+            tcp_thread.join(timeout=5)
+            
+            end_time = time.time()
+            total_time = end_time - start_time
+            
+            print(f"\n{'='*60}")
+            print(f"TCP-Only Test Complete")
+            print(f"  Total time: {total_time:.2f}s")
+            print(f"  TCP downlink size: {tcp_data_size/1024:.0f} KB")
+            print(f"{'='*60}\n")
+            
+            # Return minimal stats for TCP-only mode
+            return {
+                'tcp_data_size': tcp_data_size,
+                'batch_num': batch_num,
+                'total_time': total_time,
+                'udp_enabled': False
+            }
+        
+        def sender_thread():
+            """Send packets with specified delay"""
+            
+            # Trigger TCP downlink reception to start with UDP cycle
+            print(f"UDP: Starting batch {batch_num}, triggering TCP downlink")
+            tcp_trigger.put(batch_num)
+            
+            for seq in range(1, num_packets + 1):
+                try:
+                    actual_seq = seq_offset + seq  # Apply offset for continuous numbering
+                    packet = create_packet(actual_seq, packet_size, delay_ms if seq == 1 else None)
+                    send_time = time.time()
+                    
+                    # Retry sendto if socket buffer is full
+                    max_retries = 10
+                    sent_successfully = False
+                    for retry in range(max_retries):
+                        try:
+                            sock.sendto(packet, (server_host, server_port))
+                            sent_successfully = True
+                            break  # Success
+                        except BlockingIOError:
+                            # Socket buffer full, wait a bit and retry
+                            if retry < max_retries - 1:
+                                time.sleep(0.01)  # 10ms wait
+                            else:
+                                print(f"Failed to send packet {actual_seq} after {max_retries} retries")
+                                raise
+                    
+                    if not sent_successfully:
+                        break
+                    
+                    with sent_lock:
+                        sent_packets[actual_seq] = send_time
+                    
+                    if seq % 50 == 0 or seq == num_packets:
+                        with recv_lock:
+                            recv_count = len(received_packets)
+                        print(f"Sent {actual_seq}/{seq_offset + num_packets} packets, Received {recv_count} echoes")
+                    
+                    # Delay before next packet (except after last one)
+                    if seq < num_packets:
+                        time.sleep(delay_ms / 1000.0)
+                        
+                except Exception as e:
+                    print(f"Error sending packet {actual_seq}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    break
+            
+            print(f"UDP: Batch {batch_num} complete")
+            
+            # Signal that sending is complete
+            sending_complete.set()
+        
+        def receiver_thread():
+            """Receive echo packets continuously"""
+            MAX_RTT_SECONDS = 2.0  # Treat packets taking >2s as lost
+            last_activity_time = time.time()
+            
+            while not stop_receiving.is_set():
+                try:
+                    # Try to receive data (non-blocking)
+                    try:
+                        data, addr = sock.recvfrom(4096)
+                        recv_time = time.time()
+                        last_activity_time = recv_time
+                        
+                        # Parse sequence number
+                        if len(data) >= 4:
+                            recv_seq = struct.unpack('!I', data[:4])[0]
+                            
+                            # Get send_time without holding lock for long
+                            send_time = None
+                            with sent_lock:
+                                if recv_seq in sent_packets:
+                                    send_time = sent_packets[recv_seq]
+                            
+                            if send_time is not None:
+                                rtt = (recv_time - send_time) * 1000  # RTT in ms
+                                
+                                # Only count packets that came back within 2 seconds
+                                if (recv_time - send_time) <= MAX_RTT_SECONDS:
+                                    with recv_lock:
+                                        received_packets[recv_seq] = (recv_time, rtt)
+                                        total_received = len(received_packets)
+                                    
+                                    if total_received % 50 == 0:
+                                        with sent_lock:
+                                            total_sent = len(sent_packets)
+                                        print(f"Received {total_received}/{total_sent} echoes")
+                                else:
+                                    # Packet took too long, treat as lost
+                                    print(f"Packet {recv_seq} RTT {rtt:.0f}ms > 2s, treating as lost")
+                    
+                    except BlockingIOError:
+                        # No data available (normal), just continue
+                        pass
+                    
+                    # Small sleep to prevent busy-waiting
+                    time.sleep(0.01)  # 10ms
+                    
+                    # Check if we should stop
+                    if sending_complete.is_set():
+                        with sent_lock:
+                            total_sent = len(sent_packets)
+                        with recv_lock:
+                            total_received = len(received_packets)
+                        
+                        # Stop if we got all packets or no activity for TIMEOUT_SEC
+                        if total_received >= total_sent:
+                            break
+                        if time.time() - last_activity_time > TIMEOUT_SEC:
+                            print(f"Receive timeout (got {total_received}/{total_sent})")
+                            break
+                        
+                except Exception as e:
+                    if not stop_receiving.is_set():
+                        print(f"Receiver error: {e}")
+                        import traceback
+                        traceback.print_exc()
+                    break
+        
+        # Start receiver first, then sender
+        recv_thread = threading.Thread(target=receiver_thread, daemon=True)
+        send_thread = threading.Thread(target=sender_thread, daemon=True)
+        
+        recv_thread.start()
+        time.sleep(0.1)  # Small delay to ensure receiver is ready
+        send_thread.start()
+        
+        # Wait for sender to complete
+        send_thread.join()
+        
+        # Wait for receiver to complete (with timeout)
+        recv_thread.join(timeout=TIMEOUT_SEC + 2)
+        stop_receiving.set()
+        
+        # Wait for TCP thread to finish current transmission
+        tcp_stop.set()
+        tcp_thread.join(timeout=5)
+        
+        end_time = time.time()
+        total_time = end_time - start_time
+        
+        # Calculate statistics
+        print(f"\n{'='*60}")
+        print(f"UDP Echo Test Results:")
+        print(f"{'='*60}")
+        print(f"Total test duration: {total_time:.2f}s")
+        print(f"Packets sent: {len(sent_packets)}")
+        print(f"Packets received: {len(received_packets)}")
+        print(f"Packet loss: {len(sent_packets) - len(received_packets)} ({100 * (1 - len(received_packets)/len(sent_packets)):.2f}%)")
+        
+        if received_packets:
+            rtts = [rtt for _, rtt in received_packets.values()]
+            print(f"\nRound-Trip Time:")
+            print(f"  Min: {min(rtts):.2f}ms")
+            print(f"  Max: {max(rtts):.2f}ms")
+            print(f"  Avg: {sum(rtts)/len(rtts):.2f}ms")
+        
+        bytes_sent = len(sent_packets) * packet_size
+        bytes_received = len(received_packets) * packet_size
+        print(f"\nData transfer:")
+        print(f"  Sent: {bytes_sent} bytes ({bytes_sent * 8 / total_time:.1f} bps)")
+        print(f"  Received: {bytes_received} bytes ({bytes_received * 8 / total_time:.1f} bps)")
+        
+        # Find lost packets
+        lost_packets = sorted(set(sent_packets.keys()) - set(received_packets.keys()))
+        if lost_packets:
+            print(f"\nLost packet sequences: {lost_packets[:20]}")  # Show first 20
+            if len(lost_packets) > 20:
+                print(f"  ... and {len(lost_packets) - 20} more")
+        
+        print(f"{'='*60}\n")
+        
+        # Return statistics for aggregation
+        return {
+            'packet_size': packet_size,
+            'tcp_data_size': tcp_data_size,
+            'delay_ms': delay_ms,
+            'total_time': total_time,
+            'sent': len(sent_packets),
+            'received': len(received_packets),
+            'lost': len(sent_packets) - len(received_packets),
+            'loss_pct': 100 * (1 - len(received_packets)/len(sent_packets)) if sent_packets else 0,
+            'avg_rtt': sum(rtts)/len(rtts) if rtts else 0,
+            'min_rtt': min(rtts) if rtts else 0,
+            'max_rtt': max(rtts) if rtts else 0,
+            'throughput_bps': bytes_received * 8 / total_time if total_time > 0 else 0
+        }
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    finally:
+        if sock:
+            sock.close()
+
+def save_results(results, output_file=None):
+    """Save test results to CSV file"""
+    if output_file is None:
+        # Find next available filename
+        existing = glob.glob("udp_result_*.csv")
+        if existing:
+            numbers = []
+            for f in existing:
+                try:
+                    num = int(f.split('_')[-1].split('.')[0])
+                    numbers.append(num)
+                except:
+                    pass
+            next_num = max(numbers) + 1 if numbers else 1
+        else:
+            next_num = 1
+        output_file = f"udp_result_{next_num}.csv"
+    
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['TCP_Data_KB', 'UDP_Packet_Size', 'Delay_ms', 'Duration_s', 'Transmitted', 
+                        'Received', 'Lost', 'Loss_pct', 'Avg_RTT_ms', 'Throughput_bps'])
+        
+        for r in results:
+            if r:  # Skip None results
+                writer.writerow([
+                    f"{r['tcp_data_size']/1024:.0f}",
+                    r['packet_size'],
+                    r['delay_ms'],
+                    f"{r['total_time']:.2f}",
+                    r['sent'],
+                    r['received'],
+                    r['lost'],
+                    f"{r['loss_pct']:.2f}",
+                    f"{r['avg_rtt']:.2f}",
+                    f"{r['throughput_bps']:.1f}"
+                ])
+    
+    print(f"\nResults saved to: {output_file}")
+    return output_file
+
+def main():
+    global SERVER_HOST, SERVER_PORT
+    
+    parser = argparse.ArgumentParser(
+        description='UDP Echo Test - Test UDP packet loss and latency with concurrent TCP downlink traffic',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                           # Default: sweep TCP DL 10-50 KB, UDP 100 bytes
+  %(prog)s --tcp-size 20             # Single test: 20 KB TCP downlink
+  %(prog)s --tcp-start 15 --tcp-end 40  # Sweep TCP DL from 15 to 40 KB
+  %(prog)s --tcp-step 5              # Sweep with 5 KB increments
+  %(prog)s --udp-size 150            # UDP packet size (default: 100 bytes)
+  %(prog)s --delay 100               # 100ms delay between UDP packets
+  %(prog)s --packets 500             # Send 500 UDP packets per test
+  %(prog)s --no-udp                  # TCP-only mode (no UDP, assess TCP trace quality)
+  %(prog)s -o mytest.csv             # Save results to specific file
+        """
+    )
+    
+    parser.add_argument('--tcp-size', type=int, default=None,
+                       help='Single TCP downlink size in KB (disables sweep mode)')
+    parser.add_argument('--tcp-start', type=int, default=10,
+                       help='Starting TCP downlink size for sweep in KB (default: 10)')
+    parser.add_argument('--tcp-end', type=int, default=50,
+                       help='Ending TCP downlink size for sweep in KB (default: 50)')
+    parser.add_argument('--tcp-step', type=int, default=5,
+                       help='TCP downlink size increment for sweep in KB (default: 5)')
+    parser.add_argument('--udp-size', type=int, default=PACKET_SIZE,
+                       help=f'UDP packet size in bytes (default: {PACKET_SIZE})')
+    parser.add_argument('--delay', type=int, default=SEND_DELAY_MS,
+                       help=f'Delay between packets in ms (default: {SEND_DELAY_MS})')
+    parser.add_argument('--packets', type=int, default=NUM_PACKETS,
+                       help=f'Number of packets to send (default: {NUM_PACKETS})')
+    parser.add_argument('--server', type=str, default=SERVER_HOST,
+                       help=f'Echo server hostname/IP (default: {SERVER_HOST})')
+    parser.add_argument('--port', type=int, default=SERVER_PORT,
+                       help=f'Echo server port (default: {SERVER_PORT})')
+    parser.add_argument('-o', '--output', type=str, default=None,
+                       help='Output CSV file (default: auto-numbered udp_result_N.csv)')
+    parser.add_argument('--no-udp', action='store_true',
+                       help='Disable UDP transmission (TCP-only mode for trace quality testing)')
+    
+    args = parser.parse_args()
+    
+    # Update globals for potential use in functions
+    SERVER_HOST = args.server
+    SERVER_PORT = args.port
+    
+    results = []
+    
+    # Validate UDP packet size
+    if args.udp_size < 12:
+        print("Error: UDP packet size must be at least 12 bytes (for header)")
+        sys.exit(1)
+    if args.udp_size > 1472:
+        print("Warning: UDP packet size > 1472 may cause IP fragmentation")
+    
+    seq_offset = 0  # Track cumulative sequence numbers across tests
+    
+    enable_udp = not args.no_udp  # Invert the flag
+    
+    if args.tcp_size is not None:
+        # Single TCP size mode
+        tcp_data_size = args.tcp_size * 1024  # Convert KB to bytes
+        result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, batch_num=1, enable_udp=enable_udp)
+        if result:
+            results.append(result)
+            if enable_udp:
+                seq_offset += args.packets
+    else:
+        # Sweep mode (default) - sweep TCP data sizes
+        tcp_sizes_kb = range(args.tcp_start, args.tcp_end + 1, args.tcp_step)
+        total_tests = len(list(tcp_sizes_kb))
+        
+        print(f"\n{'#'*60}")
+        if enable_udp:
+            print(f"UDP ECHO TEST SUITE WITH TCP DOWNLINK TRAFFIC")
+        else:
+            print(f"TCP DOWNLINK-ONLY TEST SUITE (UDP DISABLED)")
+        print(f"{'#'*60}")
+        print(f"Running {total_tests} tests with TCP downlink sizes from {args.tcp_start} to {args.tcp_end} KB")
+        print(f"TCP Increment: {args.tcp_step} KB, TCP Speed: {TCP_SPEED_KBPS} kbps")
+        if enable_udp:
+            print(f"UDP Packet size: {args.udp_size} bytes, Delay: {args.delay}ms, Packets per test: {args.packets}")
+            print(f"Total UDP packets across all tests: {total_tests * args.packets} (seq 1 to {total_tests * args.packets})")
+        else:
+            print(f"UDP transmission: DISABLED")
+        print(f"{'#'*60}\n")
+        
+        for idx, tcp_size_kb in enumerate(tcp_sizes_kb, 1):
+            tcp_data_size = tcp_size_kb * 1024  # Convert KB to bytes
+            test_label = f"Test {idx}/{total_tests}: TCP downlink size {tcp_size_kb} KB"
+            result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, batch_num=idx, enable_udp=enable_udp, test_label=test_label)
+            if result:
+                results.append(result)
+                if enable_udp:
+                    seq_offset += args.packets  # Increment for next test
+            
+            # Small delay between tests
+            if idx < total_tests:
+                print("Waiting 2 seconds before next test...")
+                time.sleep(2)
+    
+    # Save results if any tests completed
+    if results:
+        # Only save to file if UDP was enabled (TCP-only doesn't have interesting stats to save)
+        if enable_udp:
+            save_results(results, args.output)
+        
+        # Print summary
+        print(f"\n{'#'*60}")
+        print(f"TEST SUITE SUMMARY")
+        print(f"{'#'*60}")
+        if enable_udp:
+            print(f"{'TCP(KB)':<10} {'UDP(B)':<10} {'Loss%':<10} {'RTT(ms)':<12} {'Speed(bps)':<15}")
+            print(f"{'-'*60}")
+            for r in results:
+                print(f"{r['tcp_data_size']/1024:<10.0f} {r['packet_size']:<10} {r['loss_pct']:<10.2f} {r['avg_rtt']:<12.2f} {r['throughput_bps']:<15.1f}")
+        else:
+            print(f"{'TCP(KB)':<10} {'Batch':<10} {'Time(s)':<12}")
+            print(f"{'-'*60}")
+            for r in results:
+                print(f"{r['tcp_data_size']/1024:<10.0f} {r['batch_num']:<10} {r['total_time']:<12.2f}")
+        print(f"{'#'*60}\n")
+    else:
+        print("\nNo test results to save.")
+
+if __name__ == "__main__":
+    main()
