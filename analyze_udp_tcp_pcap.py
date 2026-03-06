@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-PCAP Analyzer for UDP Echo Test with TCP Traffic Sweep - Trace Quality Assessment
+PCAP Analyzer for UDP Echo Test with TCP Traffic Sweep - Data Loss Assessment
 Analyzes UDP packets grouped by batches to assess trace data completeness
 
 Since PCAP is generated from incomplete trace data, missing packets indicate
 gaps in the trace rather than actual network loss. This tool helps assess
-trace quality by identifying missing sequences in each batch.
+trace quality by calculating data loss percentage in each batch.
 
 Each batch represents one test iteration with a specific TCP data size.
 Sequences are continuous (1-200, 201-400, etc.) across all batches.
@@ -14,7 +14,7 @@ Defaults:
 - Filters UDP port 21185 (UDP echo port)
 - Batch size: 200 packets per test
 - TCP sweep: starts at 10 KB, increments by 5 KB
-- Shows missing packet sequences and gap patterns per batch
+- Shows combined data loss percentage (client + server) per batch
 """
 
 import sys
@@ -79,9 +79,9 @@ def save_results(filename, results_by_batch):
     """Save analysis results to CSV file"""
     with open(filename, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(['Batch', 'TCP_Data_KB', 'Seq_Start', 'Seq_End', 'Expected', 
-                        'Client_Captured', 'Client_Missing', 'Client_Gap_pct',
-                        'Server_Captured', 'Server_Missing', 'Server_Gap_pct',
+        writer.writerow(['Batch', 'TCP_Data_KB', 'Seq_Start', 'Seq_End', 'Total_Expected', 
+                        'Total_Missing', 'Loss_Pct', 'Client_Missing', 'Client_Loss_Pct',
+                        'Server_Missing', 'Server_Loss_Pct',
                         'Missing_Seqs', 'Delay_ms', 'Duration_s', 'Avg_RTT_ms'])
         
         # Sort by batch number
@@ -97,12 +97,12 @@ def save_results(filename, results_by_batch):
                 stats['seq_start'],
                 stats['seq_end'],
                 stats['expected'],
-                stats['client_captured'],
+                stats['total_missing'],
+                f"{stats['loss_pct']:.2f}",
                 stats['client_missing'],
-                f"{stats['client_gap_pct']:.2f}",
-                stats['server_captured'],
+                f"{stats['client_loss_pct']:.2f}",
                 stats['server_missing'],
-                f"{stats['server_gap_pct']:.2f}",
+                f"{stats['server_loss_pct']:.2f}",
                 missing_seqs_str,
                 stats['delay_ms'] if stats['delay_ms'] is not None else '',
                 f"{stats['duration']:.2f}",
@@ -279,9 +279,12 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10, batch_size=200
             client_count = len(batch_client_pkts)
             server_count = len(batch_server_pkts)
             
-            # Calculate gap percentages (trace quality metric)
-            client_gap_pct = (len(missing_client) / batch_size) * 100
-            server_gap_pct = (len(missing_server) / batch_size) * 100
+            # Calculate combined data loss percentage (trace quality metric)
+            total_missing = len(missing_client) + len(missing_server)
+            total_expected = batch_size * 2  # Client + Server
+            loss_pct = (total_missing / total_expected) * 100 if total_expected > 0 else 0
+            client_loss_pct = (len(missing_client) / batch_size) * 100
+            server_loss_pct = (len(missing_server) / batch_size) * 100
             
             # Calculate timing and RTT
             timestamps = [p['timestamp'] for p in batch_client_pkts]
@@ -305,31 +308,34 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10, batch_size=200
                 if rtts:
                     avg_rtt = sum(rtts) / len(rtts)
             
-            # Display batch info with trace quality emphasis
-            missing_display = f"{len(missing_client)} missing" if missing_client else "complete"
+            # Display batch info with data loss emphasis
             print(f"  Batch {batch_num}: TCP {tcp_data_kb} KB | Seq {seq_start}-{seq_end} | "
-                  f"Client: {client_count}/{batch_size} ({missing_display}, {client_gap_pct:.1f}% gap) | "
-                  f"Server: {server_count}/{batch_size} ({server_gap_pct:.1f}% gap) | RTT: {avg_rtt:.1f}ms")
+                  f"Missing: {total_missing}/{total_expected} packets ({loss_pct:.1f}% loss) | "
+                  f"RTT: {avg_rtt:.1f}ms")
             
             # Show missing sequences if any (helpful for debugging trace issues)
-            if missing_client and len(missing_client) <= 20:
-                print(f"    Missing client seqs: {missing_client}")
-            elif missing_client:
-                print(f"    Missing client seqs: {missing_client[:10]}...{missing_client[-10:]} ({len(missing_client)} total)")
+            if total_missing > 0 and total_missing <= 20:
+                missing_all = sorted(set(missing_client + missing_server))
+                print(f"    Missing seqs: {missing_all}")
+            elif total_missing > 0:
+                missing_all = sorted(set(missing_client + missing_server))
+                print(f"    Missing seqs: {missing_all[:10]}...{missing_all[-10:]} ({total_missing} total)")
             
             stats = {
                 'batch': batch_num,
                 'tcp_data_kb': tcp_data_kb,
                 'seq_start': seq_start,
                 'seq_end': seq_end,
-                'expected': batch_size,
+                'expected': total_expected,
                 'client_captured': client_count,
                 'client_missing': len(missing_client),
-                'client_gap_pct': client_gap_pct,
                 'server_captured': server_count,
                 'server_missing': len(missing_server),
-                'server_gap_pct': server_gap_pct,
-                'missing_seqs': missing_client,  # Store for CSV
+                'total_missing': total_missing,
+                'loss_pct': loss_pct,
+                'client_loss_pct': client_loss_pct,
+                'server_loss_pct': server_loss_pct,
+                'missing_seqs': sorted(set(missing_client + missing_server)),
                 'packet_size': packet_size,
                 'delay_ms': delay_info.get(packet_size),
                 'duration': duration,
@@ -397,27 +403,25 @@ Examples:
     
     # Print summary
     print(f"\n{'#'*80}")
-    print(f"TRACE QUALITY SUMMARY - UDP Packet Gaps by Batch")
+    print(f"TRACE QUALITY SUMMARY - UDP Data Loss by Batch")
     print(f"{'#'*80}")
-    print(f"{'Batch':<8} {'TCP(KB)':<10} {'Client Gap%':<14} {'Server Gap%':<14} {'Missing':<10} {'RTT(ms)':<10}")
+    print(f"{'Batch':<8} {'TCP(KB)':<10} {'Missing':<12} {'Loss%':<10} {'RTT(ms)':<10}")
     print(f"{'-'*80}")
     for batch_num in sorted(results.keys()):
         r = results[batch_num]
-        print(f"{batch_num:<8} {r['tcp_data_kb']:<10} {r['client_gap_pct']:<14.2f} "
-              f"{r['server_gap_pct']:<14.2f} {r['client_missing']:<10} {r.get('avg_rtt', 0):<10.2f}")
+        print(f"{batch_num:<8} {r['tcp_data_kb']:<10} {r['total_missing']:<12} "
+              f"{r['loss_pct']:<10.2f} {r.get('avg_rtt', 0):<10.2f}")
     
     # Calculate overall trace quality
     total_expected = sum(r['expected'] for r in results.values())
-    total_client_missing = sum(r['client_missing'] for r in results.values())
-    total_server_missing = sum(r['server_missing'] for r in results.values())
-    overall_client_gap = (total_client_missing / total_expected * 100) if total_expected > 0 else 0
-    overall_server_gap = (total_server_missing / total_expected * 100) if total_expected > 0 else 0
+    total_missing = sum(r['total_missing'] for r in results.values())
+    overall_loss_pct = (total_missing / total_expected * 100) if total_expected > 0 else 0
     
     print(f"{'-'*80}")
-    print(f"{'OVERALL':<8} {'---':<10} {overall_client_gap:<14.2f} {overall_server_gap:<14.2f} "
-          f"{total_client_missing:<10}")
-    print(f"\nTrace Quality: Client {100-overall_client_gap:.2f}% complete, "
-          f"Server {100-overall_server_gap:.2f}% complete")
+    print(f"{'OVERALL':<8} {'---':<10} {total_missing:<12} {overall_loss_pct:<10.2f}")
+    print(f"\nTrace Quality: {100-overall_loss_pct:.2f}% complete")
+    print(f"Total packets expected: {total_expected:,}")
+    print(f"Total packets missing: {total_missing:,}")
     print(f"{'#'*80}\n")
 
 
