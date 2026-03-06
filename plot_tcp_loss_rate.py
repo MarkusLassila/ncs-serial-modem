@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Plot TCP Loss % as a function of TCP Data Size (KB)
-Reads TCP analysis CSV files from analyze_tcp_pcap.py
+Reads TCP analysis CSV files from analyze_tcp_pcap.py and analyze_tcp_recv_pcap.py
+Supports both trace data loss analysis and packet reception loss analysis
 """
 
 import matplotlib.pyplot as plt
@@ -36,7 +37,14 @@ def get_next_plot_filename(base_name="tcp_loss_vs_size", extension="png"):
     return f"{base_name}_{next_num}.{extension}"
 
 def load_tcp_data_from_csv(filename):
-    """Load TCP trace analysis data from CSV file"""
+    """Load TCP trace analysis data from CSV file
+    
+    Supports CSV output from both:
+    - analyze_tcp_pcap.py (trace data loss analysis)
+    - analyze_tcp_recv_pcap.py (trace data loss analysis for downlink)
+    
+    Both use 'Expected_KB' and 'Loss_Pct' columns
+    """
     tcp_sizes = []
     loss_percent = []
     
@@ -132,13 +140,14 @@ def plot_from_files(files, output_file=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Plot TCP trace data loss as a function of TCP data size',
+        description='Plot TCP trace data loss as a function of TCP data size (supports both analyze_tcp_pcap.py and analyze_tcp_recv_pcap.py outputs)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   %(prog)s tcp_analysis_1.csv                           # Plot single file
+  %(prog)s tcp_recv_analysis_1.csv                      # Plot TCP recv analysis
   %(prog)s tcp_analysis_*.csv                           # Plot all matching files
-  %(prog)s tcp_analysis_1.csv tcp_analysis_2.csv        # Plot multiple files
+  %(prog)s tcp_analysis_1.csv tcp_recv_analysis_1.csv   # Plot multiple files
   %(prog)s tcp_analysis_1.csv -o my_plot.png            # Custom output filename
         """
     )
