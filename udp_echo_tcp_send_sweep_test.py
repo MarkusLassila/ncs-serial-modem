@@ -148,45 +148,54 @@ def create_packet(seq_num, size=PACKET_SIZE, delay_ms=None):
     else:
         return header[:size]  # Truncate if header too long
 
-def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_data_size=20*1024, seq_offset=0, batch_num=1, test_label=None):
-    """Run UDP echo test with specified parameters
+def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_data_size=20*1024, seq_offset=0, batch_num=1, enable_udp=True, test_label=None):
+    """Run test with TCP traffic and optionally concurrent UDP echo
     
     Args:
         seq_offset: Starting sequence number (for continuous numbering across batches)
         batch_num: Batch number for TCP marker (for correlation in analyzer)
+        enable_udp: If True, send UDP packets concurrently with TCP (default: True)
     """
     print(f"\n{'='*60}")
     if test_label:
         print(f"{test_label}")
         print(f"{'='*60}")
-    print(f"UDP Echo Test Configuration:")
-    print(f"  UDP Packet size: {packet_size} bytes")
-    print(f"  UDP Delay: {delay_ms}ms")
-    print(f"  Number of UDP packets: {num_packets}")
-    print(f"  Sequence range: {seq_offset + 1} to {seq_offset + num_packets}")
-    print(f"  UDP Target speed: ~{(packet_size * 8 * 1000 / delay_ms):.1f} bps")
+    if enable_udp:
+        print(f"UDP Echo Test Configuration:")
+        print(f"  UDP Packet size: {packet_size} bytes")
+        print(f"  UDP Delay: {delay_ms}ms")
+        print(f"  Number of UDP packets: {num_packets}")
+        print(f"  Sequence range: {seq_offset + 1} to {seq_offset + num_packets}")
+        print(f"  UDP Target speed: ~{(packet_size * 8 * 1000 / delay_ms):.1f} bps")
+    else:
+        print(f"TCP-Only Test Configuration (UDP disabled):")
     print(f"  TCP Data size: {tcp_data_size/1024:.0f} KB")
     print(f"  TCP Speed: {TCP_SPEED_KBPS} kbps")
     print(f"  Server: {server_host}:{server_port}")
     print(f"{'='*60}\n")
     
-    # Create UDP socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # Set socket to non-blocking mode to prevent sendto() from blocking
-    sock.setblocking(False)
+    # Create UDP socket only if UDP is enabled
+    sock = None
+    if enable_udp:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Set socket to non-blocking mode to prevent sendto() from blocking
+        sock.setblocking(False)
+        
+        # Increase send buffer to handle bursts
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 256*1024)  # 256KB send buffer
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 256*1024)  # 256KB recv buffer
+        except:
+            pass  # Ignore if can't set buffer size
     
-    # Increase send buffer to handle bursts
     try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 256*1024)  # 256KB send buffer
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 256*1024)  # 256KB recv buffer
-    except:
-        pass  # Ignore if can't set buffer size
-    
-    try:
-        # Bind to ppp0 interface
-        bind_to_interface(sock, INTERFACE)
-        print(f"Bound to {INTERFACE}")
-        print(f"Starting UDP echo test with concurrent send/receive...\n")
+        if enable_udp:
+            # Bind to ppp0 interface
+            bind_to_interface(sock, INTERFACE)
+            print(f"Bound to {INTERFACE}")
+            print(f"Starting UDP echo test with concurrent send/receive...\n")
+        else:
+            print(f"Starting TCP-only test (no UDP)...\n")
         
         # Shared statistics with locks
         sent_packets = {}      # seq -> send_timestamp
@@ -210,6 +219,38 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_d
         )
         tcp_thread.start()
         time.sleep(0.5)  # Give TCP time to connect and send control message
+        
+        # If UDP is disabled, just trigger TCP and wait
+        if not enable_udp:
+            print(f"TCP: Starting batch {batch_num} transmission")
+            tcp_trigger.put(batch_num)
+            
+            # Wait for TCP to complete (estimate: data_size / speed + margin)
+            expected_duration = (tcp_data_size * 8 / 1000) / TCP_SPEED_KBPS  # seconds
+            timeout = max(expected_duration * 2, 10)  # At least 10s timeout
+            
+            time.sleep(expected_duration + 2)  # Wait for transmission to complete
+            
+            # Stop TCP thread
+            tcp_stop.set()
+            tcp_thread.join(timeout=5)
+            
+            end_time = time.time()
+            total_time = end_time - start_time
+            
+            print(f"\n{'='*60}")
+            print(f"TCP-Only Test Complete")
+            print(f"  Total time: {total_time:.2f}s")
+            print(f"  TCP data size: {tcp_data_size/1024:.0f} KB")
+            print(f"{'='*60}\n")
+            
+            # Return minimal stats for TCP-only mode
+            return {
+                'tcp_data_size': tcp_data_size,
+                'batch_num': batch_num,
+                'total_time': total_time,
+                'udp_enabled': False
+            }
         
         def sender_thread():
             """Send packets with specified delay"""
@@ -409,7 +450,8 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_d
         traceback.print_exc()
         return None
     finally:
-        sock.close()
+        if sock:
+            sock.close()
 
 def save_results(results, output_file=None):
     """Save test results to CSV file"""
@@ -460,13 +502,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                           # Default: sweep TCP 10-50 KB, UDP 125 bytes
+  %(prog)s                           # Default: sweep TCP 10-50 KB, UDP 100 bytes
   %(prog)s --tcp-size 20             # Single test: 20 KB TCP data
   %(prog)s --tcp-start 15 --tcp-end 40  # Sweep TCP from 15 to 40 KB
   %(prog)s --tcp-step 5              # Sweep with 5 KB increments
-  %(prog)s --udp-size 150            # UDP packet size (default: 125 bytes)
+  %(prog)s --udp-size 150            # UDP packet size (default: 100 bytes)
   %(prog)s --delay 100               # 100ms delay between UDP packets
   %(prog)s --packets 500             # Send 500 UDP packets per test
+  %(prog)s --no-udp                  # TCP-only mode (no UDP, assess TCP trace quality)
   %(prog)s -o mytest.csv             # Save results to specific file
         """
     )
@@ -491,6 +534,8 @@ Examples:
                        help=f'Echo server port (default: {SERVER_PORT})')
     parser.add_argument('-o', '--output', type=str, default=None,
                        help='Output CSV file (default: auto-numbered udp_result_N.csv)')
+    parser.add_argument('--no-udp', action='store_true',
+                       help='Disable UDP transmission (TCP-only mode for trace quality testing)')
     
     args = parser.parse_args()
     
@@ -509,34 +554,44 @@ Examples:
     
     seq_offset = 0  # Track cumulative sequence numbers across tests
     
+    enable_udp = not args.no_udp  # Invert the flag
+    
     if args.tcp_size is not None:
         # Single TCP size mode
         tcp_data_size = args.tcp_size * 1024  # Convert KB to bytes
-        result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, batch_num=1)
+        result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, batch_num=1, enable_udp=enable_udp)
         if result:
             results.append(result)
-            seq_offset += args.packets
+            if enable_udp:
+                seq_offset += args.packets
     else:
         # Sweep mode (default) - sweep TCP data sizes
         tcp_sizes_kb = range(args.tcp_start, args.tcp_end + 1, args.tcp_step)
         total_tests = len(list(tcp_sizes_kb))
         
         print(f"\n{'#'*60}")
-        print(f"UDP ECHO TEST SUITE WITH TCP TRAFFIC")
+        if enable_udp:
+            print(f"UDP ECHO TEST SUITE WITH TCP TRAFFIC")
+        else:
+            print(f"TCP-ONLY TEST SUITE (UDP DISABLED)")
         print(f"{'#'*60}")
         print(f"Running {total_tests} tests with TCP data sizes from {args.tcp_start} to {args.tcp_end} KB")
         print(f"TCP Increment: {args.tcp_step} KB, TCP Speed: {TCP_SPEED_KBPS} kbps")
-        print(f"UDP Packet size: {args.udp_size} bytes, Delay: {args.delay}ms, Packets per test: {args.packets}")
-        print(f"Total UDP packets across all tests: {total_tests * args.packets} (seq 1 to {total_tests * args.packets})")
+        if enable_udp:
+            print(f"UDP Packet size: {args.udp_size} bytes, Delay: {args.delay}ms, Packets per test: {args.packets}")
+            print(f"Total UDP packets across all tests: {total_tests * args.packets} (seq 1 to {total_tests * args.packets})")
+        else:
+            print(f"UDP transmission: DISABLED")
         print(f"{'#'*60}\n")
         
         for idx, tcp_size_kb in enumerate(tcp_sizes_kb, 1):
             tcp_data_size = tcp_size_kb * 1024  # Convert KB to bytes
             test_label = f"Test {idx}/{total_tests}: TCP data size {tcp_size_kb} KB"
-            result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, batch_num=idx, test_label=test_label)
+            result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, batch_num=idx, enable_udp=enable_udp, test_label=test_label)
             if result:
                 results.append(result)
-                seq_offset += args.packets  # Increment for next test
+                if enable_udp:
+                    seq_offset += args.packets  # Increment for next test
             
             # Small delay between tests
             if idx < total_tests:
@@ -545,16 +600,24 @@ Examples:
     
     # Save results if any tests completed
     if results:
-        save_results(results, args.output)
+        # Only save to file if UDP was enabled (TCP-only doesn't have interesting stats to save)
+        if enable_udp:
+            save_results(results, args.output)
         
         # Print summary
         print(f"\n{'#'*60}")
         print(f"TEST SUITE SUMMARY")
         print(f"{'#'*60}")
-        print(f"{'TCP(KB)':<10} {'UDP(B)':<10} {'Loss%':<10} {'RTT(ms)':<12} {'Speed(bps)':<15}")
-        print(f"{'-'*60}")
-        for r in results:
-            print(f"{r['tcp_data_size']/1024:<10.0f} {r['packet_size']:<10} {r['loss_pct']:<10.2f} {r['avg_rtt']:<12.2f} {r['throughput_bps']:<15.1f}")
+        if enable_udp:
+            print(f"{'TCP(KB)':<10} {'UDP(B)':<10} {'Loss%':<10} {'RTT(ms)':<12} {'Speed(bps)':<15}")
+            print(f"{'-'*60}")
+            for r in results:
+                print(f"{r['tcp_data_size']/1024:<10.0f} {r['packet_size']:<10} {r['loss_pct']:<10.2f} {r['avg_rtt']:<12.2f} {r['throughput_bps']:<15.1f}")
+        else:
+            print(f"{'TCP(KB)':<10} {'Batch':<10} {'Time(s)':<12}")
+            print(f"{'-'*60}")
+            for r in results:
+                print(f"{r['tcp_data_size']/1024:<10.0f} {r['batch_num']:<10} {r['total_time']:<12.2f}")
         print(f"{'#'*60}\n")
     else:
         print("\nNo test results to save.")
