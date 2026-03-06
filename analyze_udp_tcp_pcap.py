@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """
-PCAP Analyzer for UDP Echo Test
-Analyzes UDP packets to calculate packet loss based on sequence numbers
-Groups results by packet size for sweep test analysis
+PCAP Analyzer for UDP Echo Test with TCP Traffic Sweep - Trace Quality Assessment
+Analyzes UDP packets grouped by batches to assess trace data completeness
+
+Since PCAP is generated from incomplete trace data, missing packets indicate
+gaps in the trace rather than actual network loss. This tool helps assess
+trace quality by identifying missing sequences in each batch.
+
+Each batch represents one test iteration with a specific TCP data size.
+Sequences are continuous (1-200, 201-400, etc.) across all batches.
 
 Defaults:
 - Filters UDP port 21185 (UDP echo port)
-- Requires minimum 10 packets per size (filters noise)
-- Skips packet sizes with sequences not starting near 1 (not echo tests)
+- Batch size: 200 packets per test
+- TCP sweep: starts at 10 KB, increments by 5 KB
+- Shows missing packet sequences and gap patterns per batch
 """
 
 import sys
@@ -68,31 +75,45 @@ def get_next_result_filename(base_name="udp_result", extension="csv"):
     return f"{base_name}_{next_num}.{extension}"
 
 
-def save_results(filename, results_by_size):
+def save_results(filename, results_by_batch):
     """Save analysis results to CSV file"""
     with open(filename, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(['Packet_Size', 'Delay_ms', 'Duration_s', 'Transmitted', 
-                        'Captured', 'Lost', 'Loss_pct'])
+        writer.writerow(['Batch', 'TCP_Data_KB', 'Seq_Start', 'Seq_End', 'Expected', 
+                        'Client_Captured', 'Client_Missing', 'Client_Gap_pct',
+                        'Server_Captured', 'Server_Missing', 'Server_Gap_pct',
+                        'Missing_Seqs', 'Delay_ms', 'Duration_s', 'Avg_RTT_ms'])
         
-        # Sort by packet size
-        for packet_size in sorted(results_by_size.keys()):
-            stats = results_by_size[packet_size]
+        # Sort by batch number
+        for batch_num in sorted(results_by_batch.keys()):
+            stats = results_by_batch[batch_num]
+            missing_seqs_str = ','.join(map(str, stats['missing_seqs'][:20]))  # First 20
+            if len(stats['missing_seqs']) > 20:
+                missing_seqs_str += '...'
+            
             writer.writerow([
-                packet_size,
+                batch_num,
+                stats['tcp_data_kb'],
+                stats['seq_start'],
+                stats['seq_end'],
+                stats['expected'],
+                stats['client_captured'],
+                stats['client_missing'],
+                f"{stats['client_gap_pct']:.2f}",
+                stats['server_captured'],
+                stats['server_missing'],
+                f"{stats['server_gap_pct']:.2f}",
+                missing_seqs_str,
                 stats['delay_ms'] if stats['delay_ms'] is not None else '',
                 f"{stats['duration']:.2f}",
-                stats['transmitted'],
-                stats['captured'],
-                stats['lost'],
-                f"{stats['loss_pct']:.2f}"
+                f"{stats.get('avg_rtt', 0):.2f}"
             ])
     
     print(f"\nResults saved to: {filename}")
 
 
-def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
-    """Analyze PCAP file for UDP packets"""
+def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10, batch_size=200, tcp_start_kb=10, tcp_step_kb=5):
+    """Analyze PCAP file for UDP packets, grouping by batch to correlate with TCP data size"""
     print(f"Reading {pcap_file}...")
     
     try:
@@ -174,7 +195,7 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
     packets_by_size = filtered_sizes
     
     # Analyze each packet size group
-    results_by_size = {}
+    results_by_batch = {}
     
     for packet_size in sorted(packets_by_size.keys()):
         pkts = packets_by_size[packet_size]
@@ -203,97 +224,137 @@ def analyze_udp_pcap(pcap_file, target_port=None, min_packets=10):
         if len(client_src_ports) > 1:
             print(f"Found {len(client_src_ports)} different client source ports (multiple test runs)")
         
-        # Analyze sequences
-        client_seqs = set(p['seq'] for p in client_pkts)
-        server_seqs = set(p['seq'] for p in server_pkts)
+        # Group packets by batch
+        # Each batch has batch_size sequence numbers (e.g., 1-200, 201-400, etc.)
+        client_seqs = [p['seq'] for p in client_pkts]
+        server_seqs = [p['seq'] for p in server_pkts]
         
-        # Calculate statistics
-        if client_seqs:
-            min_seq = min(client_seqs)
-            max_seq = max(client_seqs)
-            expected_total = max_seq - min_seq + 1
-        else:
-            min_seq = max_seq = expected_total = 0
+        if not client_seqs:
+            print("No client sequences found")
+            continue
         
-        # Count actual packets
-        client_count = len(client_pkts)
-        server_count = len(server_pkts)
+        min_seq_all = min(client_seqs)
+        max_seq_all = max(client_seqs)
         
-        # Calculate timing
-        timestamps = [p['timestamp'] for p in client_pkts]
-        if timestamps:
-            duration = max(timestamps) - min(timestamps)
-        else:
-            duration = 0
+        # Determine batches
+        batches = defaultdict(lambda: {'client': [], 'server': []})
         
-        # Determine what "transmitted" means
-        # If we see echoes, we know server got them, so transmitted = echoed + lost
-        # Otherwise, transmitted = expected (based on max seq)
-        if server_seqs:
-            # We have echo data
-            # Lost from client perspective = what we expected but didn't capture on client side
-            lost_client = expected_total - client_count
-            # Lost echoes = what was sent but not echoed back
-            lost_echo = client_count - server_count
-            
-            print(f"Sequence range: {min_seq} to {max_seq}")
-            print(f"Expected packets: {expected_total}")
-            print(f"Client->Server captured: {client_count}")
-            print(f"Server->Client echoes: {server_count}")
-            print(f"Lost in transit (client->server): {lost_client}")
-            print(f"Lost echoes (server->client): {lost_echo}")
-            print(f"Total loss: {lost_client + lost_echo}")
-            
-            # For CSV, use total transmitted (both directions)
-            stats = {
-                'packet_size': packet_size,
-                'delay_ms': delay_info.get(packet_size),
-                'duration': duration,
-                'transmitted': expected_total * 2,  # Both directions
-                'captured': client_count + server_count,
-                'lost': lost_client + lost_echo,
-                'loss_pct': ((lost_client + lost_echo) / (expected_total * 2) * 100) if expected_total > 0 else 0
-            }
-        else:
-            # No echo data - only client->server
-            lost = expected_total - client_count
-            
-            print(f"Sequence range: {min_seq} to {max_seq}")
-            print(f"Expected packets: {expected_total}")
-            print(f"Captured packets: {client_count}")
-            print(f"Lost packets: {lost}")
-            
-            stats = {
-                'packet_size': packet_size,
-                'delay_ms': delay_info.get(packet_size),
-                'duration': duration,
-                'transmitted': expected_total,
-                'captured': client_count,
-                'lost': lost,
-                'loss_pct': (lost / expected_total * 100) if expected_total > 0 else 0
-            }
+        for p in client_pkts:
+            batch_num = (p['seq'] - 1) // batch_size + 1
+            batches[batch_num]['client'].append(p)
         
-        print(f"Duration: {duration:.2f}s")
-        print(f"Loss percentage: {stats['loss_pct']:.2f}%")
-        if stats['delay_ms'] is not None:
-            print(f"Delay: {stats['delay_ms']}ms")
+        for p in server_pkts:
+            batch_num = (p['seq'] - 1) // batch_size + 1
+            batches[batch_num]['server'].append(p)
+        
+        print(f"Overall sequence range: {min_seq_all} to {max_seq_all}")
+        print(f"Detected {len(batches)} batch(es) of ~{batch_size} packets each")
         print()
         
-        results_by_size[packet_size] = stats
+        # Analyze each batch
+        for batch_num in sorted(batches.keys()):
+            batch_data = batches[batch_num]
+            batch_client_pkts = batch_data['client']
+            batch_server_pkts = batch_data['server']
+            
+            if not batch_client_pkts:
+                continue
+            
+            # Calculate TCP data size for this batch
+            tcp_data_kb = tcp_start_kb + (batch_num - 1) * tcp_step_kb
+            
+            # Get sequence range for this batch
+            batch_seqs_client = set(p['seq'] for p in batch_client_pkts)
+            batch_seqs_server = set(p['seq'] for p in batch_server_pkts)
+            
+            seq_start = (batch_num - 1) * batch_size + 1
+            seq_end = batch_num * batch_size
+            expected_seqs = set(range(seq_start, seq_end + 1))
+            
+            # Find missing sequences (gaps in trace)
+            missing_client = sorted(expected_seqs - batch_seqs_client)
+            missing_server = sorted(expected_seqs - batch_seqs_server)
+            
+            # Count packets
+            client_count = len(batch_client_pkts)
+            server_count = len(batch_server_pkts)
+            
+            # Calculate gap percentages (trace quality metric)
+            client_gap_pct = (len(missing_client) / batch_size) * 100
+            server_gap_pct = (len(missing_server) / batch_size) * 100
+            
+            # Calculate timing and RTT
+            timestamps = [p['timestamp'] for p in batch_client_pkts]
+            if timestamps:
+                duration = float(max(timestamps) - min(timestamps))
+            else:
+                duration = 0
+            
+            # Calculate RTT if we have both client and server packets
+            avg_rtt = 0
+            if batch_server_pkts:
+                # Match up packets by sequence to calculate RTT
+                client_times = {p['seq']: p['timestamp'] for p in batch_client_pkts}
+                server_times = {p['seq']: p['timestamp'] for p in batch_server_pkts}
+                rtts = []
+                for seq in client_times:
+                    if seq in server_times:
+                        rtt_ms = float(server_times[seq] - client_times[seq]) * 1000
+                        if 0 < rtt_ms < 10000:  # Sanity check: RTT should be < 10s
+                            rtts.append(rtt_ms)
+                if rtts:
+                    avg_rtt = sum(rtts) / len(rtts)
+            
+            # Display batch info with trace quality emphasis
+            missing_display = f"{len(missing_client)} missing" if missing_client else "complete"
+            print(f"  Batch {batch_num}: TCP {tcp_data_kb} KB | Seq {seq_start}-{seq_end} | "
+                  f"Client: {client_count}/{batch_size} ({missing_display}, {client_gap_pct:.1f}% gap) | "
+                  f"Server: {server_count}/{batch_size} ({server_gap_pct:.1f}% gap) | RTT: {avg_rtt:.1f}ms")
+            
+            # Show missing sequences if any (helpful for debugging trace issues)
+            if missing_client and len(missing_client) <= 20:
+                print(f"    Missing client seqs: {missing_client}")
+            elif missing_client:
+                print(f"    Missing client seqs: {missing_client[:10]}...{missing_client[-10:]} ({len(missing_client)} total)")
+            
+            stats = {
+                'batch': batch_num,
+                'tcp_data_kb': tcp_data_kb,
+                'seq_start': seq_start,
+                'seq_end': seq_end,
+                'expected': batch_size,
+                'client_captured': client_count,
+                'client_missing': len(missing_client),
+                'client_gap_pct': client_gap_pct,
+                'server_captured': server_count,
+                'server_missing': len(missing_server),
+                'server_gap_pct': server_gap_pct,
+                'missing_seqs': missing_client,  # Store for CSV
+                'packet_size': packet_size,
+                'delay_ms': delay_info.get(packet_size),
+                'duration': duration,
+                'avg_rtt': avg_rtt
+            }
+            
+            results_by_batch[batch_num] = stats
+        
+        print()
     
-    return results_by_size
+    return results_by_batch
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Analyze UDP PCAP files from UDP echo tests (filters port 21185 by default)',
+        description='Analyze UDP+TCP sweep test PCAP - groups UDP by batch to correlate with TCP data size',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s capture.pcap                    # Analyze UDP echo (port 21185, auto-save)
-  %(prog)s capture.pcap -o results.csv     # Save to specific file
-  %(prog)s capture.pcap --port 12345       # Use different UDP port
-  %(prog)s capture.pcap --min-packets 50   # Require 50+ packets per size
+  %(prog)s capture.pcap                                    # Default: 200 pkts/batch, TCP 10-50KB in 5KB steps
+  %(prog)s capture.pcap --batch-size 200                   # Explicitly set batch size
+  %(prog)s capture.pcap --tcp-start 10 --tcp-step 5        # TCP starts at 10KB, increments by 5KB
+  %(prog)s capture.pcap --tcp-start 15 --tcp-step 10       # TCP: 15, 25, 35, 45 KB
+  %(prog)s capture.pcap -o results.csv                     # Save to specific file
+  %(prog)s capture.pcap --port 12345                       # Use different UDP port
         """
     )
     
@@ -304,6 +365,12 @@ Examples:
                        help='Filter by specific UDP port (default: 21185 for UDP echo)')
     parser.add_argument('--min-packets', type=int, default=10,
                        help='Minimum packets per size to analyze (default: 10, filters noise)')
+    parser.add_argument('--batch-size', type=int, default=200,
+                       help='UDP packets per batch/test (default: 200)')
+    parser.add_argument('--tcp-start', type=int, default=10,
+                       help='Starting TCP data size in KB (default: 10)')
+    parser.add_argument('--tcp-step', type=int, default=5,
+                       help='TCP data size increment in KB (default: 5)')
     
     args = parser.parse_args()
     
@@ -312,7 +379,8 @@ Examples:
         sys.exit(1)
     
     # Analyze the PCAP file
-    results = analyze_udp_pcap(args.pcap_file, args.port, args.min_packets)
+    results = analyze_udp_pcap(args.pcap_file, args.port, args.min_packets, 
+                               args.batch_size, args.tcp_start, args.tcp_step)
     
     if not results:
         print("No results to save.")
@@ -328,15 +396,29 @@ Examples:
     save_results(output_file, results)
     
     # Print summary
-    print(f"\n{'#'*60}")
-    print(f"ANALYSIS SUMMARY")
-    print(f"{'#'*60}")
-    print(f"{'Size(B)':<12} {'Loss%':<10} {'Transmitted':<12} {'Captured':<10}")
-    print(f"{'-'*60}")
-    for size in sorted(results.keys()):
-        r = results[size]
-        print(f"{size:<12} {r['loss_pct']:<10.2f} {r['transmitted']:<12} {r['captured']:<10}")
-    print(f"{'#'*60}\n")
+    print(f"\n{'#'*80}")
+    print(f"TRACE QUALITY SUMMARY - UDP Packet Gaps by Batch")
+    print(f"{'#'*80}")
+    print(f"{'Batch':<8} {'TCP(KB)':<10} {'Client Gap%':<14} {'Server Gap%':<14} {'Missing':<10} {'RTT(ms)':<10}")
+    print(f"{'-'*80}")
+    for batch_num in sorted(results.keys()):
+        r = results[batch_num]
+        print(f"{batch_num:<8} {r['tcp_data_kb']:<10} {r['client_gap_pct']:<14.2f} "
+              f"{r['server_gap_pct']:<14.2f} {r['client_missing']:<10} {r.get('avg_rtt', 0):<10.2f}")
+    
+    # Calculate overall trace quality
+    total_expected = sum(r['expected'] for r in results.values())
+    total_client_missing = sum(r['client_missing'] for r in results.values())
+    total_server_missing = sum(r['server_missing'] for r in results.values())
+    overall_client_gap = (total_client_missing / total_expected * 100) if total_expected > 0 else 0
+    overall_server_gap = (total_server_missing / total_expected * 100) if total_expected > 0 else 0
+    
+    print(f"{'-'*80}")
+    print(f"{'OVERALL':<8} {'---':<10} {overall_client_gap:<14.2f} {overall_server_gap:<14.2f} "
+          f"{total_client_missing:<10}")
+    print(f"\nTrace Quality: Client {100-overall_client_gap:.2f}% complete, "
+          f"Server {100-overall_server_gap:.2f}% complete")
+    print(f"{'#'*80}\n")
 
 
 if __name__ == "__main__":

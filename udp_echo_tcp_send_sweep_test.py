@@ -76,7 +76,14 @@ def tcp_uplink_thread(server_host, tcp_port, data_size, speed_kbps, trigger_queu
                 # Wait for trigger (with timeout to check stop_event)
                 cycle_num = trigger_queue.get(timeout=0.5)
                 
-                print(f"TCP: Starting transmission of {data_size} bytes (cycle {cycle_num})...")
+                print(f"TCP: Starting transmission of {data_size} bytes (batch {cycle_num})...")
+                
+                # Send batch marker so analyzer can detect batch boundaries
+                # Format: 'BTCH' (4 bytes) + cycle_num (4 bytes) + data_size (4 bytes)
+                # Include data_size as fallback in case marker packet is lost from trace
+                marker = struct.pack('!4sII', b'BTCH', cycle_num, data_size)
+                tcp_sock.sendall(marker)
+                
                 bytes_sent = 0
                 start_time = time.time()
                 
@@ -141,11 +148,12 @@ def create_packet(seq_num, size=PACKET_SIZE, delay_ms=None):
     else:
         return header[:size]  # Truncate if header too long
 
-def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_data_size=20*1024, seq_offset=0, test_label=None):
+def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_data_size=20*1024, seq_offset=0, batch_num=1, test_label=None):
     """Run UDP echo test with specified parameters
     
     Args:
         seq_offset: Starting sequence number (for continuous numbering across batches)
+        batch_num: Batch number for TCP marker (for correlation in analyzer)
     """
     print(f"\n{'='*60}")
     if test_label:
@@ -205,11 +213,10 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_d
         
         def sender_thread():
             """Send packets with specified delay"""
-            cycle_num = 1
             
             # Trigger TCP transmission to start with UDP cycle
-            print(f"UDP: Starting cycle {cycle_num}, triggering TCP transmission")
-            tcp_trigger.put(cycle_num)
+            print(f"UDP: Starting batch {batch_num}, triggering TCP transmission")
+            tcp_trigger.put(batch_num)
             
             for seq in range(1, num_packets + 1):
                 try:
@@ -254,7 +261,7 @@ def run_test(delay_ms, packet_size, num_packets, server_host, server_port, tcp_d
                     traceback.print_exc()
                     break
             
-            print(f"UDP: Cycle {cycle_num} complete")
+            print(f"UDP: Batch {batch_num} complete")
             
             # Signal that sending is complete
             sending_complete.set()
@@ -505,7 +512,7 @@ Examples:
     if args.tcp_size is not None:
         # Single TCP size mode
         tcp_data_size = args.tcp_size * 1024  # Convert KB to bytes
-        result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset)
+        result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, batch_num=1)
         if result:
             results.append(result)
             seq_offset += args.packets
@@ -526,7 +533,7 @@ Examples:
         for idx, tcp_size_kb in enumerate(tcp_sizes_kb, 1):
             tcp_data_size = tcp_size_kb * 1024  # Convert KB to bytes
             test_label = f"Test {idx}/{total_tests}: TCP data size {tcp_size_kb} KB"
-            result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, test_label)
+            result = run_test(args.delay, args.udp_size, args.packets, args.server, args.port, tcp_data_size, seq_offset, batch_num=idx, test_label=test_label)
             if result:
                 results.append(result)
                 seq_offset += args.packets  # Increment for next test
