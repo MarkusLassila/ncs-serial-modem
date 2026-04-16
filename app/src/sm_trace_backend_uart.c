@@ -93,12 +93,12 @@ static int trace_backend_init(trace_backend_processed_cb trace_processed_cb)
 	trace_processed_callback = trace_processed_cb;
 
 	/* Suspend UART at startup it can be resumed in runtime. */
-	int ret = pm_device_action_run(trace_uart_dev, PM_DEVICE_ACTION_SUSPEND);
+	// int ret = pm_device_action_run(trace_uart_dev, PM_DEVICE_ACTION_SUSPEND);
 
-	if (ret && ret != -EALREADY) {
-		LOG_ERR("Failed to %s UART device: %d", "suspend", ret);
-		return ret;
-	}
+	// if (ret && ret != -EALREADY) {
+	// 	LOG_ERR("Failed to %s UART device: %d", "suspend", ret);
+	// 	return ret;
+	// }
 
 	return 0;
 }
