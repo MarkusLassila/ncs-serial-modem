@@ -13,7 +13,11 @@
 #include <nrf_errno.h>
 #include <nrf_modem_at.h>
 #include "sm_util.h"
+#ifdef CONFIG_PARTITION_MANAGER_ENABLED
 #include <pm_config.h>
+#else
+#include <zephyr/storage/flash_map.h>
+#endif
 #include <fw_info.h>
 #include <tfm/tfm_ioctl_api.h>
 
@@ -528,12 +532,36 @@ bool sm_util_is_cid_active(uint8_t cid)
 	return false;
 }
 
-int sm_util_b1_active_version(uint32_t *version)
+int sm_util_b1_active_slot(void)
 {
-#if !defined(PM_S1_ADDRESS)
+#if defined(CONFIG_PARTITION_MANAGER_ENABLED) && defined(PM_S1_ADDRESS)
+	bool s0_active = false;
+	int err = tfm_platform_s0_active(PM_S0_ADDRESS, PM_S1_ADDRESS, &s0_active);
+
+	if (err != 0) {
+		return err;
+	}
+
+	return s0_active ? 0 : 1;
+#elif !defined(CONFIG_PARTITION_MANAGER_ENABLED) && FIXED_PARTITION_EXISTS(s1_partition)
+	bool s0_active = false;
+	int err = tfm_platform_s0_active(FIXED_PARTITION_ADDRESS(s0_partition),
+					 FIXED_PARTITION_ADDRESS(s1_partition), &s0_active);
+
+ 	if (err != 0) {
+		return err;
+	}
+
+	return s0_active ? 0 : 1;
+#else
 	ARG_UNUSED(version);
 	return -ENOTSUP;
-#else
+#endif
+}
+
+int sm_util_b1_active_version(uint32_t *version)
+{
+#if defined(CONFIG_PARTITION_MANAGER_ENABLED) && defined(PM_S1_ADDRESS)
 	bool s0_active = false;
 	int err = tfm_platform_s0_active(PM_S0_ADDRESS, PM_S1_ADDRESS, &s0_active);
 
@@ -542,7 +570,7 @@ int sm_util_b1_active_version(uint32_t *version)
 	}
 
 	uint32_t addr = s0_active ? PM_S0_ADDRESS : PM_S1_ADDRESS;
-	struct fw_info info = { 0 };
+	struct fw_info info = {0};
 
 	err = tfm_platform_firmware_info(addr, &info);
 	if (err != 0) {
@@ -551,5 +579,29 @@ int sm_util_b1_active_version(uint32_t *version)
 
 	*version = info.version;
 	return 0;
+#elif !defined(CONFIG_PARTITION_MANAGER_ENABLED) && FIXED_PARTITION_EXISTS(s1_partition)
+	bool s0_active = false;
+	int err = tfm_platform_s0_active(FIXED_PARTITION_ADDRESS(s0_partition),
+					 FIXED_PARTITION_ADDRESS(s1_partition), &s0_active);
+
+	if (err != 0) {
+		return err;
+	}
+
+	uint32_t addr = s0_active ? FIXED_PARTITION_ADDRESS(s0_partition)
+				  : FIXED_PARTITION_ADDRESS(s1_partition);
+	struct fw_info info = {0};
+
+	err = tfm_platform_firmware_info(addr, &info);
+	if (err != 0) {
+		return err;
+	}
+
+	*version = info.version;
+	return 0;
+#else
+	ARG_UNUSED(version);
+	return -ENOTSUP;
+
 #endif
 }

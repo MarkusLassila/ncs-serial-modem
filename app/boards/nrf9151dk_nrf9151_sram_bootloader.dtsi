@@ -1,0 +1,28 @@
+/*
+ * Copyright (c) 2026 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ *
+ * SRAM layout override for nRF9151DK, replacing the generic nrf91xx_partition.dtsi
+ * layout.
+ */
+
+/delete-node/ &sram0_s;
+/delete-node/ &sram0_ns;
+
+&sram0 {
+	/* Use the same layout in B0 and MCUboot.
+	 * Ensures that zeroing the secure RAM in MCUboot also clears the secure RAM used by B0.
+	 *
+	 * 0x2000_0000  Secure RAM                   (  48 kB)
+	 * 0x2000_c000  Non-secure RAM area          ( 208 kB)
+	 */
+
+	sram0_s: sram@0 {
+		reg = <0x0 0xc000>;
+	};
+
+	sram0_ns: sram@c000 {
+		reg = <0xc000 0x34000>;
+	};
+};

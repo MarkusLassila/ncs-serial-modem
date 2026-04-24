@@ -16,7 +16,11 @@
 #include <dfu/dfu_target.h>
 #include <dfu/dfu_target_modem_delta.h>
 #include <dfu/dfu_target_mcuboot.h>
+#ifdef CONFIG_PARTITION_MANAGER_ENABLED
 #include <pm_config.h>
+#else
+#include <zephyr/storage/flash_map.h>
+#endif
 #include "sm_util.h"
 #include "sm_at_host.h"
 #include "sm_at_dfu.h"
@@ -27,11 +31,21 @@ LOG_MODULE_REGISTER(sm_dfu, CONFIG_SM_LOG_LEVEL);
 
 #define APP_DFU_BUFFER_SIZE 1024
 
+#if defined(CONFIG_PARTITION_MANAGER_ENABLED)
+#if defined(PM_S1_ADDRESS)
+#define SM_DFU_BL_SUPPORTED
+#endif
+#else
+#if FIXED_PARTITION_EXISTS(s1_partition)
+#define SM_DFU_BL_SUPPORTED
+#endif
+#endif
+
 enum xdfu_image_type {
 	DFU_TYPE_APP = 0,
 	DFU_TYPE_DELTA_MFW = 1,
 	DFU_TYPE_FULL_MFW = 2,
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 	/* Banked MCUboot self-update; host must use inactive-slot signed image */
 	DFU_TYPE_MCUBOOT_B1 = 3,
 #endif
@@ -141,7 +155,7 @@ static int xdfu_datamode_callback(uint8_t op, const uint8_t *data, int len, uint
 
 		switch (xdfu_current_image_type) {
 		case DFU_TYPE_APP:
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		case DFU_TYPE_MCUBOOT_B1:
 #endif
 			err = dfu_target_mcuboot_write((const void *)data, len);
@@ -202,7 +216,7 @@ static int xdfu_datamode_callback(uint8_t op, const uint8_t *data, int len, uint
 
 		switch (xdfu_current_image_type) {
 		case DFU_TYPE_APP:
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		case DFU_TYPE_MCUBOOT_B1:
 #endif
 			expected_bytes_written = xdfu_app_datamode_context.len;
@@ -266,7 +280,7 @@ static int handle_at_xdfu_init(enum at_parser_cmd_type cmd_type, struct at_parse
 
 		switch (type) {
 		case DFU_TYPE_APP:
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		case DFU_TYPE_MCUBOOT_B1:
 #endif
 			err = at_parser_num_get(parser, 2, &size);
@@ -339,7 +353,7 @@ static int handle_at_xdfu_init(enum at_parser_cmd_type cmd_type, struct at_parse
 		}
 	case AT_PARSER_CMD_TYPE_TEST:
 #if defined(CONFIG_SM_DFU_MODEM_FULL)
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		rsp_send("\r\n#XDFUINIT: (%d,%d,%d,%d),<size>\r\n",
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_FULL_MFW,
 			DFU_TYPE_MCUBOOT_B1);
@@ -348,7 +362,7 @@ static int handle_at_xdfu_init(enum at_parser_cmd_type cmd_type, struct at_parse
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_FULL_MFW);
 #endif
 #else
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		rsp_send("\r\n#XDFUINIT: (%d,%d,%d),<size>\r\n",
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_MCUBOOT_B1);
 #else
@@ -385,7 +399,7 @@ static int handle_at_xdfu_write(enum at_parser_cmd_type cmd_type, struct at_pars
 
 		switch (type) {
 		case DFU_TYPE_APP:
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		case DFU_TYPE_MCUBOOT_B1:
 #endif
 			if (param_count != 4) {
@@ -507,7 +521,7 @@ static int handle_at_xdfu_write(enum at_parser_cmd_type cmd_type, struct at_pars
 		}
 	case AT_PARSER_CMD_TYPE_TEST:
 #if defined(CONFIG_SM_DFU_MODEM_FULL)
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		rsp_send("\r\n#XDFUWRITE: (%d,%d,%d,%d),<addr>,<len>\r\n",
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_FULL_MFW,
 			DFU_TYPE_MCUBOOT_B1);
@@ -516,7 +530,7 @@ static int handle_at_xdfu_write(enum at_parser_cmd_type cmd_type, struct at_pars
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_FULL_MFW);
 #endif
 #else
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		rsp_send("\r\n#XDFUWRITE: (%d,%d,%d),<addr>,<len>\r\n",
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_MCUBOOT_B1);
 #else
@@ -555,7 +569,7 @@ static int handle_at_xdfu_apply(enum at_parser_cmd_type cmd_type, struct at_pars
 
 		switch (type) {
 		case DFU_TYPE_APP:
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		case DFU_TYPE_MCUBOOT_B1:
 #endif
 			err = dfu_target_mcuboot_done(true);
@@ -635,7 +649,7 @@ static int handle_at_xdfu_apply(enum at_parser_cmd_type cmd_type, struct at_pars
 		}
 	case AT_PARSER_CMD_TYPE_TEST:
 #if defined(CONFIG_SM_DFU_MODEM_FULL)
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		rsp_send("\r\n#XDFUAPPLY: (%d,%d,%d,%d)\r\n",
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_FULL_MFW,
 			DFU_TYPE_MCUBOOT_B1);
@@ -644,7 +658,7 @@ static int handle_at_xdfu_apply(enum at_parser_cmd_type cmd_type, struct at_pars
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_FULL_MFW);
 #endif
 #else
-#if defined(PM_S1_ADDRESS)
+#if defined(SM_DFU_BL_SUPPORTED)
 		rsp_send("\r\n#XDFUAPPLY: (%d,%d,%d)\r\n",
 			DFU_TYPE_APP, DFU_TYPE_DELTA_MFW, DFU_TYPE_MCUBOOT_B1);
 #else

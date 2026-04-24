@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#include "nrf9151dk_nrf9151_partition.dtsi"
+#include "nrf9151dk_nrf9151_sram.dtsi"
+
 / {
 	chosen {
 		ncs,sm-uart = &dtr_uart0;
