@@ -554,7 +554,6 @@ int sm_util_b1_active_slot(void)
 
 	return s0_active ? 0 : 1;
 #else
-	ARG_UNUSED(version);
 	return -ENOTSUP;
 #endif
 }
