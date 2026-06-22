@@ -1,10 +1,10 @@
 name: Build unsigned artifacts
 
 # Demo workflow for the split build/sign flow: build the UNSIGNED b0 / MCUboot /
-# app artifacts and publish them as a build artifact. Only the MCUboot PUBLIC
-# verification key is read from Vault (via the VAULT_ADDR/VAULT_TOKEN secrets) to
-# bake into MCUboot; no private key is present. A secure environment signs the
-# bundle later with Vault (scripts/signing/sign-release.sh).
+# app artifacts and publish them as a build artifact. The MCUboot PUBLIC
+# verification key (committed in app/certificates/) is baked into MCUboot; no
+# private key is present. A secure environment signs the bundle later with Vault
+# (scripts/signing/sign-release.sh).
 
 on:
   workflow_dispatch:
@@ -57,27 +57,6 @@ jobs:
 
       - name: Install proper toolchain bundle
         run: ./nrfutil toolchain-manager install --toolchain-bundle ${{steps.set-tb-id.outputs.TOOLCHAIN_BUNDLE_NAME}}
-
-      - name: Fetch MCUboot public key from Vault
-        # The build only needs the PUBLIC verification key to bake into MCUboot.
-        # Fetch it read-only from Vault using the secrets. Keys must already be
-        # provisioned (scripts/signing/01-vault-setup.sh with the same VAULT env).
-        # curl and jq are preinstalled on the runner.
-        env:
-          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
-          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
-        run: |
-          if [ -z "${VAULT_ADDR}" ] || [ -z "${VAULT_TOKEN}" ]; then
-            echo "::error::Set the VAULT_ADDR and VAULT_TOKEN repository secrets."; exit 1
-          fi
-          mkdir -p serial_modem/app/signing-keys
-          curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
-            "${VAULT_ADDR%/}/v1/transit/keys/mcuboot" \
-            | jq -r '.data.keys | to_entries | max_by(.key|tonumber) | .value.public_key' \
-            > serial_modem/app/signing-keys/mcuboot_pub.pem
-          grep -q "BEGIN PUBLIC KEY" serial_modem/app/signing-keys/mcuboot_pub.pem || {
-            echo "::error::Could not fetch the 'mcuboot' public key from Vault. Provision keys first with scripts/signing/01-vault-setup.sh"; exit 1; }
-          echo "Fetched MCUboot public verification key from Vault."
 
       - name: Build unsigned artifacts
         # Runs west build inside the NCS toolchain environment. build-unsigned.sh

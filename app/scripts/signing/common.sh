@@ -12,7 +12,7 @@ NCS_DIR="${NCS_DIR:-$(cd "${APP_DIR}/../.." && pwd)}"
 BOARD="${BOARD:-nrf9151dk/nrf9151/ns}"
 
 BUILD_DIR="${BUILD_DIR:-${APP_DIR}/build}"
-KEYS_DIR="${KEYS_DIR:-${APP_DIR}/signing-keys}"      # public verification key(s)
+CERTS_DIR="${CERTS_DIR:-${APP_DIR}/certificates}"    # committed public verification keys
 OUT_DIR="${OUT_DIR:-${APP_DIR}/signing-out}"
 UNSIGNED_DIR="${UNSIGNED_DIR:-${OUT_DIR}/unsigned}"  # build-unsigned.sh output bundle
 MANIFEST_FILE_NAME="manifest.env"                    # signing parameters captured at build time
@@ -25,10 +25,11 @@ ALIGN="${ALIGN:-4}"
 APP_VERSION_DEFAULT="${APP_VERSION_DEFAULT:-1.99.0+0}"
 MCUBOOT_VERSION_DEFAULT="${MCUBOOT_VERSION_DEFAULT:-0.0.0+0}"
 
-# --- MCUboot application verification key ------------------------------------
+# --- MCUboot application verification key (committed in certificates/) -------
+# MCUboot verifies the app against this PUBLIC key, which build-unsigned.sh bakes
+# into MCUboot. The matching private key lives in Vault and never appears here.
 
-MCUBOOT_KEY_NAME="${MCUBOOT_KEY_NAME:-mcuboot}"
-mcuboot_pub_pem() { echo "${KEYS_DIR}/${MCUBOOT_KEY_NAME}_pub.pem"; }
+mcuboot_pub_pem() { echo "${CERTS_DIR}/pubkey_mcuboot.pem"; }
 
 # --- Output formatting -------------------------------------------------------
 

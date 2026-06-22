@@ -5,9 +5,10 @@
 # Builds b0 + MCUboot + app and exports ONLY the unsigned artifacts plus a
 # manifest of (non-secret) signing parameters. No production private key and no
 # Vault are involved here - this can run in a public CI. The real MCUboot app
-# PUBLIC key is baked in so MCUboot will later verify the Vault-signed app; the
-# NSIB signature produced by this build uses a throwaway debug key and is
-# discarded; the unsigned artifacts are signed later in a secure environment.
+# PUBLIC key (committed in certificates/) is baked in so MCUboot will later
+# verify the Vault-signed app; the NSIB signature produced by this build uses a
+# throwaway debug key and is discarded; the unsigned artifacts are signed later
+# in a secure environment.
 #
 # Produces (under signing-out/unsigned/):
 #   b0.hex                  immutable bootloader (key-agnostic)
@@ -46,7 +47,7 @@ done
 
 # The MCUboot app PUBLIC key must be present so it gets baked into MCUboot.
 require_file "$(mcuboot_pub_pem)" \
-    "MCUboot app public key ($(mcuboot_pub_pem)). The workflow fetches it from Vault; or copy it here."
+    "MCUboot app public key ($(mcuboot_pub_pem)). It is committed in certificates/."
 
 # --- Build (unless harvesting an existing build) -----------------------------
 
