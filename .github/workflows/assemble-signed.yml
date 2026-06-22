@@ -10,8 +10,14 @@ name: Assemble signed release
 #   1. Run "Build unsigned artifacts"; note its run ID. Download the bundle,
 #      take manifest-tosign.env into the secure env and sign it:
 #        ./sign-hashes.sh --in manifest-tosign.env --out manifest-signed.env
-#   2. Run this workflow, pasting the manifest-signed.env contents and the build
-#      run ID. The signatures must come from THAT build's manifest-tosign.env.
+#   2. Hand manifest-signed.env to this workflow as a SINGLE-LINE input (the
+#      workflow_dispatch UI text field is single-line and silently collapses the
+#      newlines of a pasted multi-line file). Pick one:
+#        a) gist  - gh gist create --secret manifest-signed.env
+#                   then paste the gist RAW url into signed_manifest_url
+#        b) base64 - base64 < manifest-signed.env | tr -d '\n' | pbcopy
+#                    then paste the blob into signed_manifest_b64
+#      The signatures must come from THAT build's manifest-tosign.env.
 
 on:
   workflow_dispatch:
@@ -19,9 +25,14 @@ on:
       build_run_id:
         description: "Run ID of the 'Build unsigned artifacts' run to assemble"
         required: true
-      signed_manifest:
-        description: "Full contents of manifest-signed.env (from sign-hashes.sh)"
-        required: true
+      signed_manifest_url:
+        description: "URL to manifest-signed.env (e.g. a gist raw URL). Leave blank if pasting base64."
+        required: false
+        default: ""
+      signed_manifest_b64:
+        description: "base64 of manifest-signed.env (base64 < file | tr -d '\\n'). Used if no URL given."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -43,13 +54,26 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Materialize signatures (manifest-signed.env)
+        # The signed manifest arrives single-line (the dispatch UI is single-line):
+        # either a URL we fetch, or a base64 blob we decode. base64 -d ignores any
+        # whitespace, so a blob that picked up stray spaces still decodes.
         env:
-          SIGNED_MANIFEST: ${{ inputs.signed_manifest }}
+          URL: ${{ inputs.signed_manifest_url }}
+          B64: ${{ inputs.signed_manifest_b64 }}
         run: |
-          printf '%s\n' "$SIGNED_MANIFEST" > app/signing-out/manifest-signed.env
-          grep -q '^SIGN_ITEMS=' app/signing-out/manifest-signed.env \
-            || { echo "::error::signed_manifest is not a manifest-signed.env (no SIGN_ITEMS)"; exit 1; }
-          grep -q '_SIG=' app/signing-out/manifest-signed.env \
+          out=app/signing-out/manifest-signed.env
+          if [ -n "${URL}" ]; then
+            echo "Fetching signed manifest from ${URL}"
+            curl -sfL "${URL}" -o "${out}" || { echo "::error::could not fetch ${URL}"; exit 1; }
+          elif [ -n "${B64}" ]; then
+            echo "Decoding base64 signed manifest"
+            printf '%s' "${B64}" | base64 -d > "${out}" || { echo "::error::signed_manifest_b64 is not valid base64"; exit 1; }
+          else
+            echo "::error::provide signed_manifest_url or signed_manifest_b64"; exit 1
+          fi
+          grep -q '^SIGN_ITEMS=' "${out}" \
+            || { echo "::error::not a manifest-signed.env (no SIGN_ITEMS line - did newlines survive?)"; exit 1; }
+          grep -q '_SIG=' "${out}" \
             || { echo "::error::manifest-signed.env has no signatures (run sign-hashes.sh)"; exit 1; }
 
       - name: Install assembly dependencies
