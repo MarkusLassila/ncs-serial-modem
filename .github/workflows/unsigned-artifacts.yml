@@ -67,6 +67,15 @@ jobs:
           ./nrfutil toolchain-manager launch --chdir serial_modem/app -- \
             env PYTHON=python3 ./scripts/signing/build-unsigned.sh
 
+      - name: Prepare signing requests (manifest-tosign.env)
+        # Computes the hashes/digests that need a private key and writes them into
+        # the bundle as manifest-tosign.env. Toolchain + the committed MCUboot
+        # public key only - no private key, no Vault. The secure env signs this
+        # file (sign-hashes.sh) and the assemble workflow applies the result.
+        run: |
+          ./nrfutil toolchain-manager launch --chdir serial_modem/app -- \
+            env PYTHON=python3 ./scripts/signing/sign-prepare.sh
+
       - name: Upload unsigned artifact bundle
         uses: actions/upload-artifact@v4
         with:

@@ -1,0 +1,90 @@
+name: Assemble signed release
+
+# Phase 3 of the split build / sign / assemble flow. Takes the UNSIGNED bundle
+# from a "Build unsigned artifacts" run plus the signatures produced manually in
+# the secure environment (manifest-signed.env, from sign-hashes.sh) and assembles
+# the final flashable images + app FOTA package. No private key and no Vault are
+# involved here - the signing already happened in the secure env.
+#
+# How to use:
+#   1. Run "Build unsigned artifacts"; note its run ID. Download the bundle,
+#      take manifest-tosign.env into the secure env and sign it:
+#        ./sign-hashes.sh --in manifest-tosign.env --out manifest-signed.env
+#   2. Run this workflow, pasting the manifest-signed.env contents and the build
+#      run ID. The signatures must come from THAT build's manifest-tosign.env.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "Run ID of the 'Build unsigned artifacts' run to assemble"
+        required: true
+      signed_manifest:
+        description: "Full contents of manifest-signed.env (from sign-hashes.sh)"
+        required: true
+
+permissions:
+  contents: read
+  actions: read          # download-artifact needs this to read another run's artifacts
+
+jobs:
+  assemble:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout signing scripts
+        uses: actions/checkout@v4
+
+      - name: Download unsigned bundle from the build run
+        uses: actions/download-artifact@v4
+        with:
+          name: unsigned-bundle
+          path: app/signing-out/unsigned
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Materialize signatures (manifest-signed.env)
+        env:
+          SIGNED_MANIFEST: ${{ inputs.signed_manifest }}
+        run: |
+          printf '%s\n' "$SIGNED_MANIFEST" > app/signing-out/manifest-signed.env
+          grep -q '^SIGN_ITEMS=' app/signing-out/manifest-signed.env \
+            || { echo "::error::signed_manifest is not a manifest-signed.env (no SIGN_ITEMS)"; exit 1; }
+          grep -q '_SIG=' app/signing-out/manifest-signed.env \
+            || { echo "::error::manifest-signed.env has no signatures (run sign-hashes.sh)"; exit 1; }
+
+      - name: Install assembly dependencies
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -q --upgrade pip
+          /tmp/venv/bin/pip install -q imgtool intelhex cryptography pyyaml cbor2 click
+
+      - name: Fetch NCS helper scripts (pinned to the bundle's sdk-nrf revision)
+        run: |
+          . app/signing-out/unsigned/manifest.env
+          NRF_REV="${NCS_REVISION:?manifest.env has no NCS_REVISION}"
+          echo "Assembling against sdk-nrf revision ${NRF_REV}"
+          mkdir -p /tmp/ncs-scripts
+          base="https://raw.githubusercontent.com/nrfconnect/sdk-nrf/${NRF_REV}/scripts/bootloader"
+          for s in validation_data.py provision.py generate_zip.py; do
+            curl -sfL "${base}/${s}" -o "/tmp/ncs-scripts/${s}"
+          done
+
+      - name: Assemble signed release
+        env:
+          PYTHON: /tmp/venv/bin/python3
+          IMGTOOL: /tmp/venv/bin/imgtool
+          VALIDATION_DATA_PY: /tmp/ncs-scripts/validation_data.py
+          PROVISION_PY: /tmp/ncs-scripts/provision.py
+          GENERATE_ZIP_PY: /tmp/ncs-scripts/generate_zip.py
+        run: |
+          ./app/scripts/signing/sign-assemble.sh
+          ./app/scripts/signing/package-app-fota.sh
+
+      - name: Publish signed artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release
+          path: |
+            app/signing-out/release/
+            app/signing-out/fota/
+          if-no-files-found: error
