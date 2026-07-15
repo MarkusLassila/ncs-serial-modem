@@ -68,6 +68,27 @@ for item in ${SIGN_ITEMS}; do
         || die "unsafe item name in SIGN_ITEMS: '${item}' (expected alphanumeric/underscore only)"
 done
 
+# Print a signing summary for the operator to review before any vault write.
+_board="$(get_field BOARD_NAME)$(get_field SOC_NAME | { read s; [ -n "$s" ] && printf '/%s' "$s" || true; })"
+_app_ver="$(get_field APP_VERSION)"
+_mcuboot_ver="$(get_field MCUBOOT_VERSION)"
+_ncs_rev="$(get_field NCS_REVISION)"
+echo "============================================================" >&2
+echo "  SIGNING AUTHORIZATION" >&2
+echo "  Review the details below before Vault signs these hashes." >&2
+echo "------------------------------------------------------------" >&2
+printf   "  Board   : %s\n"  "${_board:-<unknown>}"   >&2
+printf   "  App     : %s\n"  "${_app_ver:-<unknown>}" >&2
+printf   "  MCUboot : %s\n"  "${_mcuboot_ver:-<unknown>}" >&2
+printf   "  NCS rev : %s\n"  "${_ncs_rev:-<unknown>}" >&2
+echo     "  Items   :" >&2
+for item in ${SIGN_ITEMS}; do
+    _key="$(get_field "SIGN_${item}_KEY")"
+    printf "    %-12s key=%-10s -> %s/sign/%s\n" \
+        "${item}" "${_key}" "${VAULT_TRANSIT_MOUNT}" "${_key}" >&2
+done
+echo "============================================================" >&2
+
 # Carry the whole to-sign manifest through, then append the signatures.
 cp "${IN}" "${OUT}"
 {
