@@ -71,7 +71,7 @@ add_request() {  # <name> <key-name> <prehashed> <input-b64>
     local name="$1" key="$2" prehashed="$3" b64="$4"
     ITEMS+=("${name}")
     cat >> "${TOSIGN}" <<EOF
-SIGN_${name}_PATH="$(vault_sign_path "${key}")"
+SIGN_${name}_KEY="${key}"
 SIGN_${name}_PREHASHED="${prehashed}"
 SIGN_${name}_HASH_ALGORITHM="sha2-256"
 SIGN_${name}_MARSHALING="asn1"

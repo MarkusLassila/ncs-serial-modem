@@ -43,6 +43,9 @@ vault token lookup >/dev/null 2>&1 || die \
        export VAULT_ADDR=https://vault.example.com
        export VAULT_CACERT=/path/to/ca.crt      # if Vault uses a private CA
        vault login"
+[ -n "${VAULT_TRANSIT_MOUNT:-}" ] || die \
+"VAULT_TRANSIT_MOUNT is not set. Export it before running sign-hashes.sh, e.g.:
+       export VAULT_TRANSIT_MOUNT=myorg/myproduct/debug"
 
 # Parse the manifest as data — never source it as shell code.
 # Reads the first matching KEY="VALUE" line; returns 1 if the key is absent.
@@ -73,16 +76,19 @@ cp "${IN}" "${OUT}"
 } >> "${OUT}"
 
 for item in ${SIGN_ITEMS}; do
-    path="$(get_field "SIGN_${item}_PATH")"
+    key="$(get_field "SIGN_${item}_KEY")"
     b64="$(get_field "SIGN_${item}_INPUT_B64")"
     prehashed="$(get_field "SIGN_${item}_PREHASHED")"
     halg="$(get_field "SIGN_${item}_HASH_ALGORITHM")"
     marsh="$(get_field "SIGN_${item}_MARSHALING")"
-    [ -n "${path}" ] && [ -n "${b64}" ] || die "request '${item}' is incomplete in ${IN}"
+    [ -n "${key}" ] && [ -n "${b64}" ] || die "request '${item}' is incomplete in ${IN}"
 
-    # Validate the Vault path: must look like a transit sign endpoint.
-    [[ "${path}" =~ ^[A-Za-z0-9_/.-]+/sign/[A-Za-z0-9_-]+$ ]] \
-        || die "unexpected Vault path for '${item}': '${path}'"
+    # Validate the key name (alphanumeric + underscore/hyphen only) before
+    # constructing the Vault path. The mount is operator-controlled via
+    # VAULT_TRANSIT_MOUNT, so CI cannot redirect signing to a different key.
+    [[ "${key}" =~ ^[A-Za-z0-9_-]+$ ]] \
+        || die "unexpected key name for '${item}': '${key}'"
+    path="${VAULT_TRANSIT_MOUNT}/sign/${key}"
     # Validate algorithm fields to prevent argument injection.
     [[ "${halg:-sha2-256}" =~ ^[a-z0-9-]+$ ]] \
         || die "unexpected hash_algorithm for '${item}': '${halg}'"

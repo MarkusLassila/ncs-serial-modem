@@ -50,17 +50,15 @@ VALIDATION_DATA_PY="${VALIDATION_DATA_PY:-${NCS_DIR}/nrf/scripts/bootloader/vali
 PROVISION_PY="${PROVISION_PY:-${NCS_DIR}/nrf/scripts/bootloader/provision.py}"
 GENERATE_ZIP_PY="${GENERATE_ZIP_PY:-${NCS_DIR}/nrf/scripts/bootloader/generate_zip.py}"
 
-# --- Vault key addresses (the actual signing happens in the secure env) ------
-# This repo does not talk to Vault; it only records WHERE each hash must be
-# signed, so sign-hashes.sh (run manually in the secure environment) can do it.
-# These are the nRF91 M1 / CELL / REV0 DEBUG key addresses.
-VAULT_TRANSIT_MOUNT="${VAULT_TRANSIT_MOUNT:-nRF91M1/CELL/REV0/debug}"
+# --- Vault key names (the actual signing happens in the secure env) ----------
+# This repo does not talk to Vault. sign-prepare.sh records the KEY NAME for
+# each signing request in manifest-tosign.env (e.g. SIGN_app_KEY="MCUBOOT").
+# sign-hashes.sh (run in the secure env) constructs the full Vault path by
+# combining the key name with VAULT_TRANSIT_MOUNT, which the operator exports
+# before running sign-hashes.sh. The mount path is never stored in this repo.
 NSIB_KEY_NAME="${NSIB_KEY_NAME:-B0}"             # B0 signs MCUboot S0/S1, feeds provisioning
 NSIB_KEY_NAMES=("${NSIB_KEY_NAME}")              # provisioning trusted-key list (single key)
 MCUBOOT_KEY_NAME="${MCUBOOT_KEY_NAME:-MCUBOOT}"  # MCUboot signs the application image
-
-# Full Vault sign path for a key name, e.g. nRF91M1/CELL/REV0/debug/sign/B0
-vault_sign_path() { echo "${VAULT_TRANSIT_MOUNT}/sign/$1"; }
 
 # --- Public verification keys (committed in certificates/) -------------------
 # Public material only; matching private keys live in Vault. pub_pem maps a Vault
