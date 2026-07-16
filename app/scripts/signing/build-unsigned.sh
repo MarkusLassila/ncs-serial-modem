@@ -18,8 +18,8 @@
 #   manifest.env            signing parameters captured from the build
 #
 # Options:
-#   --version N          MCUboot monotonic firmware version (CONFIG_FW_INFO_FIRMWARE_VERSION, default: ${MCUBOOT_VERSION_DEFAULT})
-#   --app-version X      app image version            (default: ${APP_VERSION_DEFAULT})
+#   --version N          MCUboot monotonic firmware version (CONFIG_FW_INFO_FIRMWARE_VERSION, default: harvested from mcuboot/.config)
+#   --app-version X      app image version            (default: harvested from build.ninja)
 #   --build-dir DIR      build directory              (default: ${BUILD_DIR})
 #   --use-existing       harvest from an existing build dir (skip west build)
 #   --print-only         print the west command and exit
@@ -28,8 +28,8 @@ set -euo pipefail
 SCRIPT_NAME="build-unsigned"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-MCUBOOT_VERSION="${MCUBOOT_VERSION_DEFAULT}"
-APP_VERSION="${APP_VERSION_DEFAULT}"
+MCUBOOT_VERSION=""
+APP_VERSION=""
 USE_EXISTING=0
 PRINT_ONLY=0
 
@@ -65,7 +65,6 @@ if [ "${USE_EXISTING}" -eq 0 ]; then
         west build --board "${BOARD}" --build-dir "${BUILD_DIR}" --pristine --sysbuild "${APP_DIR}"
         --
         "-DMCUBOOT_BAKE_PUBKEY=${MCUBOOT_PUB}"
-        "-Dmcuboot_CONFIG_FW_INFO_FIRMWARE_VERSION=${MCUBOOT_VERSION}"
         # Enable B0/NSIB validation logging on the console (the demo's
         # "Verifying signature against key N" / "Invalidating key N" lines).
         # Minimal log mode + default level 0 keep every other b0 module silent.
@@ -74,6 +73,7 @@ if [ "${USE_EXISTING}" -eq 0 ]; then
         "-Db0_CONFIG_LOG_DEFAULT_LEVEL=0"
         "-Db0_CONFIG_SECURE_BOOT_VALIDATION_LOG_LEVEL_INF=y"
     )
+    [ -n "${MCUBOOT_VERSION}" ] && WEST_CMD+=("-Dmcuboot_CONFIG_FW_INFO_FIRMWARE_VERSION=${MCUBOOT_VERSION}")
     log "Building unsigned artifacts (real app pubkey baked into MCUboot; debug keys discarded)..."
     printf '%s ' "${WEST_CMD[@]}" >&2; echo >&2
     [ "${PRINT_ONLY}" -eq 1 ] && { ok "--print-only set: not building."; exit 0; }
@@ -125,8 +125,23 @@ PROV_ADDR="$(field 'provision\.py' 'provision-addr')"
 PROV_MAX_SIZE="$(field 'provision\.py' 'max-size')"
 PROV_COUNTER_SLOTS="$(field 'provision\.py' 'num-counter-slots-version')"
 PROV_OTP_WIDTH="$(field 'provision\.py' 'otp-write-width')"
-MCUBOOT_SLOT_SIZE="$(grep -rhoE 'imgtool\.py sign[^&]*rom-fixed[^&]*' "${NINJA}" | grep -oE '[-][-]slot-size [^ ]+' | head -1 | awk '{print $2}')"
-APP_LOAD_ADDR="$(grep -hoE 'imgtool\.py sign[^&]*tfm_merged[^&]*' "${BUILD_DIR}/app/build.ninja" 2>/dev/null | grep -oE '[-][-]rom-fixed [^ ]+' | head -1 | awk '{print $2}')"
+
+# Parse all flags from the MCUboot imgtool sign command (S0 slot, rom-fixed 0x8000).
+_mb_cmd="$(grep -rhoE 'imgtool\.py sign[^&]*rom-fixed 0x8000[^&]*' "${NINJA}" 2>/dev/null | head -1)"
+_mbf() { printf '%s' "${_mb_cmd}" | grep -oE "[-][-]$1 [^ ]+" | awk '{print $2}'; }
+MCUBOOT_SLOT_SIZE="$(_mbf slot-size)"
+MCUBOOT_HEADER_SIZE="$(_mbf header-size)"
+MCUBOOT_ALIGN="$(_mbf align)"
+MCUBOOT_VERSION="${MCUBOOT_VERSION:-$(grep -oE 'CONFIG_FW_INFO_FIRMWARE_VERSION=[0-9]+' "${BUILD_DIR}/mcuboot/zephyr/.config" 2>/dev/null | cut -d= -f2)}"
+
+# Parse all flags from the app imgtool sign command (tfm_merged).
+_app_cmd="$(grep -hoE 'imgtool\.py sign[^&]*tfm_merged[^&]*' "${BUILD_DIR}/app/build.ninja" 2>/dev/null | head -1)"
+_af() { printf '%s' "${_app_cmd}" | grep -oE "[-][-]$1 [^ ]+" | awk '{print $2}'; }
+APP_SLOT_SIZE="$(_af slot-size)"
+APP_HEADER_SIZE="$(_af header-size)"
+APP_ALIGN="$(_af align)"
+APP_LOAD_ADDR="$(_af rom-fixed)"
+APP_VERSION="${APP_VERSION:-$(_af version)}"
 
 # Board/SoC split from BOARD (e.g. nrf9151dk/nrf9151/ns).
 BOARD_NAME="$(echo "${BOARD}" | cut -d/ -f1)"
@@ -148,9 +163,9 @@ MAGIC_VALUE="${MAGIC_VALUE}"
 VAL_SKIP="${VAL_SKIP:-0x200}"
 VAL_OFFSET="${VAL_OFFSET:-0}"
 MCUBOOT_VERSION="${MCUBOOT_VERSION}"
-MCUBOOT_SLOT_SIZE="${MCUBOOT_SLOT_SIZE:-49152}"
-MCUBOOT_HEADER_SIZE="${HEADER_SIZE}"
-MCUBOOT_ALIGN="${ALIGN}"
+MCUBOOT_SLOT_SIZE="${MCUBOOT_SLOT_SIZE}"
+MCUBOOT_HEADER_SIZE="${MCUBOOT_HEADER_SIZE}"
+MCUBOOT_ALIGN="${MCUBOOT_ALIGN}"
 
 # B0 provisioning (public key hash list)
 PROV_S0_ADDR="${PROV_S0_ADDR:-0x8000}"
@@ -162,14 +177,18 @@ PROV_OTP_WIDTH="${PROV_OTP_WIDTH:-2}"
 
 # Application (MCUboot signs the app); load address captured from build.
 APP_VERSION="${APP_VERSION}"
-APP_SLOT_SIZE="${SLOT_SIZE}"
-APP_HEADER_SIZE="${HEADER_SIZE}"
-APP_ALIGN="${ALIGN}"
+APP_SLOT_SIZE="${APP_SLOT_SIZE}"
+APP_HEADER_SIZE="${APP_HEADER_SIZE}"
+APP_ALIGN="${APP_ALIGN}"
 APP_LOAD_ADDR="${APP_LOAD_ADDR}"
 EOF
 
-[ -n "${MAGIC_VALUE}" ] || err "could not capture --magic-value from build.ninja; build may be incomplete"
-[ -n "${APP_LOAD_ADDR}" ] || err "could not capture --rom-fixed (APP_LOAD_ADDR) from ${BUILD_DIR}/app/build.ninja; build may be incomplete"
+[ -n "${MAGIC_VALUE}" ]       || err "could not capture --magic-value from build.ninja; build may be incomplete"
+[ -n "${MCUBOOT_SLOT_SIZE}" ] || err "could not capture MCUboot --slot-size from ${BUILD_DIR}/build.ninja; build may be incomplete"
+[ -n "${MCUBOOT_VERSION}" ]   || err "could not capture CONFIG_FW_INFO_FIRMWARE_VERSION from ${BUILD_DIR}/mcuboot/zephyr/.config; build may be incomplete"
+[ -n "${APP_SLOT_SIZE}" ]     || err "could not capture app --slot-size from ${BUILD_DIR}/app/build.ninja; build may be incomplete"
+[ -n "${APP_LOAD_ADDR}" ]     || err "could not capture app --rom-fixed from ${BUILD_DIR}/app/build.ninja; build may be incomplete"
+[ -n "${APP_VERSION}" ]       || err "could not capture app --version from ${BUILD_DIR}/app/build.ninja; build may be incomplete"
 
 ok "Unsigned artifact bundle -> ${UNSIGNED_DIR}"
 log "  $(cd "${UNSIGNED_DIR}" && ls -1 | tr '\n' ' ')"

@@ -31,12 +31,6 @@ TOSIGN_FILE_NAME="manifest-tosign.env"               # build params + signing re
 
 # --- Signing parameters (captured into the manifest) -------------------------
 
-SLOT_SIZE="${SLOT_SIZE:-0x6f000}"
-HEADER_SIZE="${HEADER_SIZE:-0x200}"
-ALIGN="${ALIGN:-4}"
-APP_VERSION_DEFAULT="${APP_VERSION_DEFAULT:-1.99.0+0}"
-MCUBOOT_VERSION_DEFAULT="${MCUBOOT_VERSION_DEFAULT:-1}"
-
 # --- Signing toolchain -------------------------------------------------------
 # Defaults resolve inside an NCS west workspace, where build-unsigned.sh and
 # sign-prepare.sh run. The assemble workflow has no west workspace and overrides
