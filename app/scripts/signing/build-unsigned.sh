@@ -18,7 +18,7 @@
 #   manifest.env            signing parameters captured from the build
 #
 # Options:
-#   --version X.Y.Z+B    MCUboot/B0 version           (default: ${MCUBOOT_VERSION_DEFAULT})
+#   --version N          MCUboot monotonic firmware version (CONFIG_FW_INFO_FIRMWARE_VERSION, default: ${MCUBOOT_VERSION_DEFAULT})
 #   --app-version X      app image version            (default: ${APP_VERSION_DEFAULT})
 #   --build-dir DIR      build directory              (default: ${BUILD_DIR})
 #   --use-existing       harvest from an existing build dir (skip west build)
@@ -65,7 +65,7 @@ if [ "${USE_EXISTING}" -eq 0 ]; then
         west build --board "${BOARD}" --build-dir "${BUILD_DIR}" --pristine --sysbuild "${APP_DIR}"
         --
         "-DMCUBOOT_BAKE_PUBKEY=${MCUBOOT_PUB}"
-        "-DSB_CONFIG_SECURE_BOOT_MCUBOOT_VERSION=\"${MCUBOOT_VERSION}\""
+        "-Dmcuboot_CONFIG_FW_INFO_FIRMWARE_VERSION=${MCUBOOT_VERSION}"
         # Enable B0/NSIB validation logging on the console (the demo's
         # "Verifying signature against key N" / "Invalidating key N" lines).
         # Minimal log mode + default level 0 keep every other b0 module silent.
@@ -126,6 +126,7 @@ PROV_MAX_SIZE="$(field 'provision\.py' 'max-size')"
 PROV_COUNTER_SLOTS="$(field 'provision\.py' 'num-counter-slots-version')"
 PROV_OTP_WIDTH="$(field 'provision\.py' 'otp-write-width')"
 MCUBOOT_SLOT_SIZE="$(grep -rhoE 'imgtool\.py sign[^&]*rom-fixed[^&]*' "${NINJA}" | grep -oE '[-][-]slot-size [^ ]+' | head -1 | awk '{print $2}')"
+APP_LOAD_ADDR="$(grep -hoE 'imgtool\.py sign[^&]*tfm_merged[^&]*' "${BUILD_DIR}/app/build.ninja" 2>/dev/null | grep -oE '[-][-]rom-fixed [^ ]+' | head -1 | awk '{print $2}')"
 
 # Board/SoC split from BOARD (e.g. nrf9151dk/nrf9151/ns).
 BOARD_NAME="$(echo "${BOARD}" | cut -d/ -f1)"
@@ -159,15 +160,16 @@ PROV_MAX_SIZE="${PROV_MAX_SIZE:-0x280}"
 PROV_COUNTER_SLOTS="${PROV_COUNTER_SLOTS:-40}"
 PROV_OTP_WIDTH="${PROV_OTP_WIDTH:-2}"
 
-# Application (MCUboot signs the app); slot0 (primary app) is at 0x20000.
+# Application (MCUboot signs the app); load address captured from build.
 APP_VERSION="${APP_VERSION}"
 APP_SLOT_SIZE="${SLOT_SIZE}"
 APP_HEADER_SIZE="${HEADER_SIZE}"
 APP_ALIGN="${ALIGN}"
-APP_LOAD_ADDR="0x20000"
+APP_LOAD_ADDR="${APP_LOAD_ADDR}"
 EOF
 
 [ -n "${MAGIC_VALUE}" ] || err "could not capture --magic-value from build.ninja; build may be incomplete"
+[ -n "${APP_LOAD_ADDR}" ] || err "could not capture --rom-fixed (APP_LOAD_ADDR) from ${BUILD_DIR}/app/build.ninja; build may be incomplete"
 
 ok "Unsigned artifact bundle -> ${UNSIGNED_DIR}"
 log "  $(cd "${UNSIGNED_DIR}" && ls -1 | tr '\n' ' ')"
