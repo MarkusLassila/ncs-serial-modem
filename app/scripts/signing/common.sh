@@ -147,3 +147,27 @@ app_fixsig() {  # <sig_b64der_file> <pubkey> <unsigned_app> <out>
     app_sign_args
     "${PYTHON}" "${IMGTOOL}" "${APP_ARGS[@]}" --fix-sig "$1" --fix-sig-pubkey "$2" "$3" "$4"
 }
+
+# imgtool 'sign' arg array for the MCUboot FOTA (signed_by_mcuboot_and_b0) path.
+# Takes a per-slot rom-fixed address. MCUboot binaries already have CONFIG_ROM_START_OFFSET
+# header space reserved, so --pad-header is not needed.
+mcuboot_fota_sign_args() {  # <rom_fixed_addr>
+    MCUBOOT_FOTA_ARGS=( sign --version "${MCUBOOT_VERSION}"
+                        --slot-size "${MCUBOOT_SLOT_SIZE}"
+                        --header-size "${MCUBOOT_HEADER_SIZE}"
+                        --align "${MCUBOOT_ALIGN}"
+                        --rom-fixed "$1" )
+}
+
+# imgtool digest for a B0-signed MCUboot slot (needs the MCUboot PUBLIC key only).
+mcuboot_fota_digest() {  # <rom_fixed_addr> <pubkey> <b0_signed_bin> <out_digest>
+    mcuboot_fota_sign_args "$1"
+    "${PYTHON}" "${IMGTOOL}" "${MCUBOOT_FOTA_ARGS[@]}" -k "$2" --vector-to-sign digest "$3" "$4"
+}
+
+# imgtool --fix-sig for a MCUboot FOTA slot (applies a pre-computed signature).
+mcuboot_fota_fixsig() {  # <rom_fixed_addr> <sig_b64der_file> <pubkey> <b0_signed_in> <out>
+    mcuboot_fota_sign_args "$1"
+    "${PYTHON}" "${IMGTOOL}" "${MCUBOOT_FOTA_ARGS[@]}" \
+        --fix-sig "$2" --fix-sig-pubkey "$3" "$4" "$5"
+}
