@@ -35,7 +35,7 @@ SLOT_SIZE="${SLOT_SIZE:-0x6f000}"
 HEADER_SIZE="${HEADER_SIZE:-0x200}"
 ALIGN="${ALIGN:-4}"
 APP_VERSION_DEFAULT="${APP_VERSION_DEFAULT:-1.99.0+0}"
-MCUBOOT_VERSION_DEFAULT="${MCUBOOT_VERSION_DEFAULT:-0.0.0+0}"
+MCUBOOT_VERSION_DEFAULT="${MCUBOOT_VERSION_DEFAULT:-1}"
 
 # --- Signing toolchain -------------------------------------------------------
 # Defaults resolve inside an NCS west workspace, where build-unsigned.sh and
@@ -99,7 +99,8 @@ require_python_imgtool() {
 # imgtool 'sign' arg array (uses APP_* from the manifest) -> global APP_ARGS.
 app_sign_args() {
     APP_ARGS=( sign --version "${APP_VERSION}" --slot-size "${APP_SLOT_SIZE}"
-               --header-size "${APP_HEADER_SIZE}" --pad-header --align "${APP_ALIGN}" )
+               --header-size "${APP_HEADER_SIZE}" --pad-header --align "${APP_ALIGN}"
+               --rom-fixed "${APP_LOAD_ADDR}" )
 }
 
 # hash.py over an unsigned MCUboot slot -> hash file (the NSIB Vault sign input).
