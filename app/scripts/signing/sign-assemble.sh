@@ -40,13 +40,22 @@ if [ -n "${USE_BOOTLOADER}" ]; then
 else
     require_file "${VALIDATION_DATA_PY}" "validation_data.py"
     require_file "${PROVISION_PY}" "provision.py"
-    NSIB_PUB="$(pub_pem "${NSIB_KEY_NAME}")"
-    require_file "${NSIB_PUB}" "committed B0 public key (certificates/)"
 fi
 
 # shellcheck disable=SC1090
 . "${SIGNED}"
 [ -n "${SIGN_ITEMS:-}" ] || err "${SIGNED} has no SIGN_ITEMS / signatures"
+
+# Extend the provisioned B0 key list if a second key was recorded in the manifest
+# (written by build-unsigned.sh --b0-key-name-2 for B0 key-revocation testing).
+[ -n "${NSIB_KEY_NAME_2:-}" ] && NSIB_KEY_NAMES+=("${NSIB_KEY_NAME_2}")
+
+# Derive which B0 public key was used for signing from the signed manifest.
+# pub_pem() maps e.g. B0_V2 -> pubkey_b0_v2.pem (mirrors APP_PUB from SIGN_app_KEY).
+if [ -z "${USE_BOOTLOADER}" ]; then
+    NSIB_PUB="$(pub_pem "${SIGN_nsib_s0_KEY:-${NSIB_KEY_NAME}}")"
+    require_file "${NSIB_PUB}" "committed B0 public key for ${SIGN_nsib_s0_KEY:-${NSIB_KEY_NAME}} (certificates/)"
+fi
 
 # Derive which MCUboot public key to use from the vault key name recorded in
 # the signed manifest. pub_pem() maps e.g. MCUBOOT_V2 -> pubkey_mcuboot_v2.pem.

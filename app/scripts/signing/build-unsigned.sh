@@ -23,6 +23,8 @@
 #   --build-dir DIR      build directory              (default: ${BUILD_DIR})
 #   --use-existing       harvest from an existing build dir (skip west build)
 #   --print-only         print the west command and exit
+#   --b0-key-name-2 NAME second B0 Vault key name for B0 key-revocation testing (e.g. B0_V2;
+#                        its pubkey must be committed as certificates/pubkey_b0_v2.pem)
 
 set -euo pipefail
 SCRIPT_NAME="build-unsigned"
@@ -32,6 +34,7 @@ MCUBOOT_VERSION=""
 APP_VERSION=""
 MCUBOOT_PUB_OVERRIDE=""
 MCUBOOT_PUB_2=""
+NSIB_KEY_NAME_2=""
 USE_EXISTING=0
 PRINT_ONLY=0
 
@@ -42,6 +45,7 @@ while [ $# -gt 0 ]; do
         --build-dir)      BUILD_DIR="${2:?}"; shift 2 ;;
         --bake-pubkey)    MCUBOOT_PUB_OVERRIDE="$(realpath "${2:?}")"; shift 2 ;;
         --bake-pubkey-2)  MCUBOOT_PUB_2="$(realpath "${2:?}")"; shift 2 ;;
+        --b0-key-name-2)  NSIB_KEY_NAME_2="${2:?}"; shift 2 ;;
         --use-existing)   USE_EXISTING=1; shift ;;
         --print-only)     PRINT_ONLY=1; shift ;;
         -h|--help)        sed -n '2,30p' "$0"; exit 0 ;;
@@ -52,6 +56,13 @@ done
 # The MCUboot app PUBLIC key must be present so it gets baked into MCUboot.
 require_file "$(mcuboot_pub_pem)" \
     "MCUboot app public key ($(mcuboot_pub_pem)). It is committed in certificates/."
+
+# Optional: second B0 key for key-revocation testing.
+if [ -n "${NSIB_KEY_NAME_2}" ]; then
+    require_file "$(pub_pem "${NSIB_KEY_NAME_2}")" \
+        "B0 second public key ($(pub_pem "${NSIB_KEY_NAME_2}")). It must be committed in certificates/."
+    log "B0 key revocation build: provisioning both ${NSIB_KEY_NAME} and ${NSIB_KEY_NAME_2}"
+fi
 
 # --- Build (unless harvesting an existing build) -----------------------------
 
@@ -186,6 +197,7 @@ PROV_ADDR="${PROV_ADDR}"
 PROV_MAX_SIZE="${PROV_MAX_SIZE:-0x280}"
 PROV_COUNTER_SLOTS="${PROV_COUNTER_SLOTS:-40}"
 PROV_OTP_WIDTH="${PROV_OTP_WIDTH:-2}"
+NSIB_KEY_NAME_2="${NSIB_KEY_NAME_2}"
 
 # Application (MCUboot signs the app); load address captured from build.
 APP_VERSION="${APP_VERSION}"

@@ -24,6 +24,7 @@ SCRIPT_NAME="sign-prepare"
 
 APP_ONLY=0
 MCUBOOT_KEY_VER=1
+B0_KEY_VER=1
 TOSIGN=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -31,6 +32,7 @@ while [ $# -gt 0 ]; do
         --output)                TOSIGN="${2:?}"; shift 2 ;;
         --app-only)              APP_ONLY=1; shift ;;
         --mcuboot-key-version)   MCUBOOT_KEY_VER="${2:?}"; shift 2 ;;
+        --b0-key-version)        B0_KEY_VER="${2:?}"; shift 2 ;;
         -h|--help)               sed -n '2,30p' "$0"; exit 0 ;;
         *)                       err "unknown argument: $1 (see --help)" ;;
     esac
@@ -87,12 +89,19 @@ EOF
 }
 
 if [ "${APP_ONLY}" = "0" ]; then
+    # B0 key rotation: use the second B0 key when --b0-key-version 2 is given.
+    _b0_key_name="${NSIB_KEY_NAME}"
+    if [ "${B0_KEY_VER}" = "2" ]; then
+        [ -n "${NSIB_KEY_NAME_2:-}" ] || err "--b0-key-version 2 requires NSIB_KEY_NAME_2 in the manifest; build with --b0-key-name-2"
+        _b0_key_name="${NSIB_KEY_NAME_2}"
+        log "B0 key rotation: using ${NSIB_KEY_NAME_2} for MCUboot signing requests"
+    fi
     log "Hashing MCUboot slots (hash.py) for B0 to sign"
     nsib_hash "${U_S0}" "${WORK}/s0.hash"
     nsib_hash "${U_S1}" "${WORK}/s1.hash"
     # B0 signs the hash-file contents; Vault does the SHA256 (prehashed=false).
-    add_request nsib_s0 "${NSIB_KEY_NAME}" false "$(base64 < "${WORK}/s0.hash" | tr -d '\n')"
-    add_request nsib_s1 "${NSIB_KEY_NAME}" false "$(base64 < "${WORK}/s1.hash" | tr -d '\n')"
+    add_request nsib_s0 "${_b0_key_name}" false "$(base64 < "${WORK}/s0.hash" | tr -d '\n')"
+    add_request nsib_s1 "${_b0_key_name}" false "$(base64 < "${WORK}/s1.hash" | tr -d '\n')"
 fi
 
 log "Computing app image digest (imgtool) for MCUBOOT to sign"
