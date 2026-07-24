@@ -35,8 +35,6 @@ done
 require_python_imgtool
 require_file "${MERGEHEX}" "mergehex.py"
 require_file "${SIGNED}" "signed manifest (run sign-hashes.sh in the secure env)"
-APP_PUB="$(mcuboot_pub_pem)"
-require_file "${APP_PUB}" "committed MCUboot public key (certificates/)"
 if [ -n "${USE_BOOTLOADER}" ]; then
     require_file "${USE_BOOTLOADER}" "reusable signed bootloader (--use-bootloader)"
 else
@@ -49,6 +47,11 @@ fi
 # shellcheck disable=SC1090
 . "${SIGNED}"
 [ -n "${SIGN_ITEMS:-}" ] || err "${SIGNED} has no SIGN_ITEMS / signatures"
+
+# Derive which MCUboot public key to use from the vault key name recorded in
+# the signed manifest. pub_pem() maps e.g. MCUBOOT_V2 -> pubkey_mcuboot_v2.pem.
+APP_PUB="$(pub_pem "${SIGN_app_KEY:-${MCUBOOT_KEY_NAME}}")"
+require_file "${APP_PUB}" "committed MCUboot public key for ${SIGN_app_KEY:-${MCUBOOT_KEY_NAME}} (certificates/)"
 
 U_APP="${UNSIGNED_DIR}/app_unsigned.hex"
 require_file "${U_APP}" "unsigned artifact"

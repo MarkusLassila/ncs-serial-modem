@@ -11,3 +11,11 @@
 # MCUboot image being configured.
 #
 set_config_string(${ZCMAKE_APPLICATION} CONFIG_BOOT_SIGNATURE_KEY_FILE "${MCUBOOT_BAKE_PUBKEY}")
+
+# When a second public key is provided for in-field key rotation, forward it
+# via Kconfig so MCUboot's CMakeLists.txt can pick it up. Direct cmake cache
+# variables are not forwarded to child images in sysbuild; Kconfig values are.
+if(DEFINED MCUBOOT_BAKE_PUBKEY_2 AND NOT MCUBOOT_BAKE_PUBKEY_2 STREQUAL "")
+    set_config_string(${ZCMAKE_APPLICATION} CONFIG_BOOT_SECOND_SIGNATURE_KEY_FILE "${MCUBOOT_BAKE_PUBKEY_2}")
+    message(STATUS "sysbuild: MCUBOOT_BAKE_PUBKEY_2 -> MCUboot second key = ${MCUBOOT_BAKE_PUBKEY_2}")
+endif()

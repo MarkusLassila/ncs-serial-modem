@@ -23,14 +23,16 @@ SCRIPT_NAME="sign-prepare"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 APP_ONLY=0
+MCUBOOT_KEY_VER=1
 TOSIGN=""
 while [ $# -gt 0 ]; do
     case "$1" in
-        --unsigned-dir) UNSIGNED_DIR="${2:?}"; shift 2 ;;
-        --output)       TOSIGN="${2:?}"; shift 2 ;;
-        --app-only)     APP_ONLY=1; shift ;;
-        -h|--help)      sed -n '2,30p' "$0"; exit 0 ;;
-        *)              err "unknown argument: $1 (see --help)" ;;
+        --unsigned-dir)          UNSIGNED_DIR="${2:?}"; shift 2 ;;
+        --output)                TOSIGN="${2:?}"; shift 2 ;;
+        --app-only)              APP_ONLY=1; shift ;;
+        --mcuboot-key-version)   MCUBOOT_KEY_VER="${2:?}"; shift 2 ;;
+        -h|--help)               sed -n '2,30p' "$0"; exit 0 ;;
+        *)                       err "unknown argument: $1 (see --help)" ;;
     esac
 done
 TOSIGN="${TOSIGN:-${UNSIGNED_DIR}/${TOSIGN_FILE_NAME}}"
@@ -39,6 +41,11 @@ TOSIGN="${TOSIGN:-${UNSIGNED_DIR}/${TOSIGN_FILE_NAME}}"
 
 require_python_imgtool
 APP_PUB="$(mcuboot_pub_pem)"
+# Key rotation: use the next public key when --mcuboot-key-version 2 is given.
+if [ "${MCUBOOT_KEY_VER}" = "2" ]; then
+    APP_PUB="$(pub_pem "${MCUBOOT_KEY_NAME_NEXT}")"
+    log "Key rotation: using ${MCUBOOT_KEY_NAME_NEXT} (${APP_PUB}) for app digest"
+fi
 require_file "${APP_PUB}" "committed MCUboot public key (certificates/)"
 [ "${APP_ONLY}" = "0" ] && require_file "${HASH_PY}" "hash.py"
 
@@ -90,8 +97,11 @@ fi
 
 log "Computing app image digest (imgtool) for MCUBOOT to sign"
 app_digest "${APP_PUB}" "${U_APP}" "${WORK}/app.digest"
-# MCUBOOT signs the digest directly (prehashed=true).
-add_request app "${MCUBOOT_KEY_NAME}" true "$(base64 < "${WORK}/app.digest" | tr -d '\n')"
+# Select vault key name based on key version.
+_app_key_name="${MCUBOOT_KEY_NAME}"
+[ "${MCUBOOT_KEY_VER}" = "2" ] && _app_key_name="${MCUBOOT_KEY_NAME_NEXT}"
+# MCUBOOT key signs the digest directly (prehashed=true).
+add_request app "${_app_key_name}" true "$(base64 < "${WORK}/app.digest" | tr -d '\n')"
 
 echo "SIGN_ITEMS=\"${ITEMS[*]}\"" >> "${TOSIGN}"
 

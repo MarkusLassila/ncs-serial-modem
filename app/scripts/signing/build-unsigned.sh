@@ -30,18 +30,22 @@ SCRIPT_NAME="build-unsigned"
 
 MCUBOOT_VERSION=""
 APP_VERSION=""
+MCUBOOT_PUB_OVERRIDE=""
+MCUBOOT_PUB_2=""
 USE_EXISTING=0
 PRINT_ONLY=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --version)      MCUBOOT_VERSION="${2:?}"; shift 2 ;;
-        --app-version)  APP_VERSION="${2:?}"; shift 2 ;;
-        --build-dir)    BUILD_DIR="${2:?}"; shift 2 ;;
-        --use-existing) USE_EXISTING=1; shift ;;
-        --print-only)   PRINT_ONLY=1; shift ;;
-        -h|--help)      sed -n '2,30p' "$0"; exit 0 ;;
-        *)              err "unknown argument: $1 (see --help)" ;;
+        --version)        MCUBOOT_VERSION="${2:?}"; shift 2 ;;
+        --app-version)    APP_VERSION="${2:?}"; shift 2 ;;
+        --build-dir)      BUILD_DIR="${2:?}"; shift 2 ;;
+        --bake-pubkey)    MCUBOOT_PUB_OVERRIDE="$(realpath "${2:?}")"; shift 2 ;;
+        --bake-pubkey-2)  MCUBOOT_PUB_2="$(realpath "${2:?}")"; shift 2 ;;
+        --use-existing)   USE_EXISTING=1; shift ;;
+        --print-only)     PRINT_ONLY=1; shift ;;
+        -h|--help)        sed -n '2,30p' "$0"; exit 0 ;;
+        *)                err "unknown argument: $1 (see --help)" ;;
     esac
 done
 
@@ -60,7 +64,7 @@ if [ "${USE_EXISTING}" -eq 0 ]; then
     # those signed outputs are discarded; we harvest the unsigned payloads. NSIB
     # also uses the debug key here (discarded); the unsigned payloads are signed
     # later in a secure environment.
-    MCUBOOT_PUB="$(mcuboot_pub_pem)"
+    MCUBOOT_PUB="${MCUBOOT_PUB_OVERRIDE:-$(mcuboot_pub_pem)}"
     WEST_CMD=(
         west build --board "${BOARD}" --build-dir "${BUILD_DIR}" --pristine --sysbuild "${APP_DIR}"
         --
@@ -73,6 +77,11 @@ if [ "${USE_EXISTING}" -eq 0 ]; then
         "-Db0_CONFIG_LOG_DEFAULT_LEVEL=0"
         "-Db0_CONFIG_SECURE_BOOT_VALIDATION_LOG_LEVEL_INF=y"
     )
+    if [ -n "${MCUBOOT_PUB_2}" ]; then
+        require_file "${MCUBOOT_PUB_2}" "second MCUboot public key (--bake-pubkey-2)"
+        WEST_CMD+=("-DMCUBOOT_BAKE_PUBKEY_2=${MCUBOOT_PUB_2}")
+        log "Key rotation build: baking both ${MCUBOOT_PUB} and ${MCUBOOT_PUB_2} into MCUboot"
+    fi
     [ -n "${MCUBOOT_VERSION}" ] && WEST_CMD+=("-Dmcuboot_CONFIG_FW_INFO_FIRMWARE_VERSION=${MCUBOOT_VERSION}")
     log "Building unsigned artifacts (real app pubkey baked into MCUboot; debug keys discarded)..."
     printf '%s ' "${WEST_CMD[@]}" >&2; echo >&2
@@ -128,7 +137,7 @@ PROV_OTP_WIDTH="$(field 'provision\.py' 'otp-write-width')"
 
 # Parse all flags from the MCUboot imgtool sign command (S0 slot, rom-fixed 0x8000).
 _mb_cmd="$(grep -rhoE 'imgtool\.py sign[^&]*rom-fixed 0x8000[^&]*' "${NINJA}" 2>/dev/null | head -1)"
-_mbf() { printf '%s' "${_mb_cmd}" | grep -oE "[-][-]$1 [^ ]+" | awk '{print $2}'; }
+_mbf() { printf '%s' "${_mb_cmd}" | grep -oE "[-][-]$1 [^ ]+" | awk '{print $2}' || true; }
 MCUBOOT_SLOT_SIZE="$(_mbf slot-size)"
 MCUBOOT_HEADER_SIZE="$(_mbf header-size)"
 MCUBOOT_ALIGN="$(_mbf align)"
@@ -136,11 +145,14 @@ MCUBOOT_VERSION="${MCUBOOT_VERSION:-$(grep -oE 'CONFIG_FW_INFO_FIRMWARE_VERSION=
 
 # Parse all flags from the app imgtool sign command (tfm_merged).
 _app_cmd="$(grep -hoE 'imgtool\.py sign[^&]*tfm_merged[^&]*' "${BUILD_DIR}/app/build.ninja" 2>/dev/null | head -1)"
-_af() { printf '%s' "${_app_cmd}" | grep -oE "[-][-]$1 [^ ]+" | awk '{print $2}'; }
+_af() { printf '%s' "${_app_cmd}" | grep -oE "[-][-]$1 [^ ]+" | awk '{print $2}' || true; }
 APP_SLOT_SIZE="$(_af slot-size)"
 APP_HEADER_SIZE="$(_af header-size)"
 APP_ALIGN="$(_af align)"
-APP_LOAD_ADDR="$(_af rom-fixed)"
+# APP_LOAD_ADDR: the app has no --rom-fixed; extract from the dfu_application.zip
+# generate_zip command in the sysbuild build.ninja (app.signed.binload_address=0x...).
+APP_LOAD_ADDR="$(grep -hoE 'app\.signed\.binload_address=0x[0-9a-fA-F]+' "${NINJA}" 2>/dev/null \
+    | head -1 | grep -oE '0x[0-9a-fA-F]+')"
 APP_VERSION="${APP_VERSION:-$(_af version)}"
 
 # Board/SoC split from BOARD (e.g. nrf9151dk/nrf9151/ns).

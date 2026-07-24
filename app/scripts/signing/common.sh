@@ -53,6 +53,7 @@ GENERATE_ZIP_PY="${GENERATE_ZIP_PY:-${NCS_DIR}/nrf/scripts/bootloader/generate_z
 NSIB_KEY_NAME="${NSIB_KEY_NAME:-B0}"             # B0 signs MCUboot S0/S1, feeds provisioning
 NSIB_KEY_NAMES=("${NSIB_KEY_NAME}")              # provisioning trusted-key list (single key)
 MCUBOOT_KEY_NAME="${MCUBOOT_KEY_NAME:-MCUBOOT}"  # MCUboot signs the application image
+MCUBOOT_KEY_NAME_NEXT="${MCUBOOT_KEY_NAME_NEXT:-MCUBOOT_V2}"  # rotation key (next key, phase 1/2 of key rotation)
 
 # --- Public verification keys (committed in certificates/) -------------------
 # Public material only; matching private keys live in Vault. pub_pem maps a Vault
@@ -93,8 +94,7 @@ require_python_imgtool() {
 # imgtool 'sign' arg array (uses APP_* from the manifest) -> global APP_ARGS.
 app_sign_args() {
     APP_ARGS=( sign --version "${APP_VERSION}" --slot-size "${APP_SLOT_SIZE}"
-               --header-size "${APP_HEADER_SIZE}" --pad-header --align "${APP_ALIGN}"
-               --rom-fixed "${APP_LOAD_ADDR}" )
+               --header-size "${APP_HEADER_SIZE}" --pad-header --align "${APP_ALIGN}" )
 }
 
 # hash.py over an unsigned MCUboot slot -> hash file (the NSIB Vault sign input).
