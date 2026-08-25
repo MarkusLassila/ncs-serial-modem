@@ -1,0 +1,51 @@
+#
+# Copyright (c) 2026 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+# Application defaults for full modem FOTA, enabled by setting CONFIG_SM_FULL_FOTA=y.
+#
+# All settings are conditional on SM_FULL_FOTA so they have no effect when full FOTA is
+# disabled, and they can be overridden by explicit values in a .conf file or on the command line.
+
+if SM_FULL_FOTA
+
+# External flash via SPI for storing the full modem firmware image during OTA.
+configdefault SPI
+	default y
+
+configdefault SPI_NOR
+	default y
+
+# Select the devicetree SFDP variant (reads flash geometry from devicetree instead of runtime).
+choice SPI_NOR_SFDP
+	default SPI_NOR_SFDP_DEVICETREE
+endchoice
+
+# DFU target for streaming full modem firmware update.
+configdefault DFU_TARGET
+	default y
+
+configdefault DFU_TARGET_STREAM
+	default y
+
+configdefault DFU_TARGET_FULL_MODEM
+	default y
+
+configdefault ZCBOR
+	default y
+
+configdefault FMFU_FDEV
+	default y
+
+configdefault FMFU_FDEV_SKIP_PREVALIDATION
+	default n
+
+configdefault PSA_WANT_ALG_SHA_256
+	default y
+
+configdefault STREAM_FLASH_INSPECT
+	default n
+
+endif # SM_FULL_FOTA

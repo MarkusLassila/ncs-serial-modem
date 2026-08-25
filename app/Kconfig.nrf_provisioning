@@ -1,0 +1,93 @@
+#
+# Copyright (c) 2026 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+# Application defaults for nRF Device Provisioning, enabled by setting CONFIG_NRF_PROVISIONING=y.
+#
+# All settings are conditional on NRF_PROVISIONING so they have no effect when provisioning is
+# disabled, and they can be overridden by explicit values in a .conf file or on the command line.
+
+if NRF_PROVISIONING
+
+# Use CoAP transport instead of HTTP.
+configdefault NRF_PROVISIONING_HTTP
+	default n
+
+configdefault NRF_PROVISIONING_COAP
+	default y
+
+configdefault NRF_PROVISIONING_WITH_CERT
+	default y
+
+configdefault NRF_PROVISIONING_ROOT_CA_SEC_TAG
+	default 42384
+
+configdefault NRF_PROVISIONING_PROVIDE_ATTESTATION_TOKEN
+	default y
+
+# Use INFO log level for provisioning.
+choice NRF_PROVISIONING_LOG_LEVEL_CHOICE
+	default NRF_PROVISIONING_LOG_LEVEL_INF
+endchoice
+
+# Three concurrent CoAP client instances are required: one for nRF Device Provisioning,
+# one for AT#XCOAPCREQ requests, and one for AT#XNRFCLOUD CoAP-based cloud communication.
+configdefault COAP_CLIENT_MAX_INSTANCES
+	default 3
+
+# Timeout for waiting for the modem to enter the desired connectivity state during provisioning.
+configdefault NRF_PROVISIONING_MODEM_STATE_WAIT_TIMEOUT_SECONDS
+	default 120
+
+# Provisioning is host-triggered; disable scheduled auto-start.
+configdefault NRF_PROVISIONING_SCHEDULED
+	default n
+
+configdefault NRF_PROVISIONING_AUTO_START_ON_INIT
+	default n
+
+# Use CBOR codec for provisioning message content.
+configdefault NRF_PROVISIONING_CODEC
+	default y
+
+configdefault NRF_PROVISIONING_CBOR
+	default y
+
+configdefault ZCBOR
+	default y
+
+# Max provisioning commands in a single provisioning exchange.
+configdefault NRF_PROVISIONING_CBOR_RECORDS
+	default 5
+
+# Adjust provisioning and buffer sizes to handle nRF Cloud certificates.
+configdefault NRF_PROVISIONING_RX_BUF_SZ
+	default 2304
+
+configdefault NRF_PROVISIONING_TX_BUF_SZ
+	default 2304
+
+configdefault NRF_PROVISIONING_CODEC_AT_CMD_LEN
+	default 2048
+
+# CoAP support.
+configdefault COAP
+	default y
+
+configdefault COAP_EXTENDED_OPTIONS_LEN
+	default y
+
+configdefault COAP_CLIENT
+	default y
+
+# Modem key management.
+# Note: MODEM_ATTEST_TOKEN is intentionally NOT set here as a configdefault because
+# NRF_PROVISIONING hard-depends on it (depends on MODEM_ATTEST_TOKEN), which means any
+# "default y if NRF_PROVISIONING" condition on MODEM_ATTEST_TOKEN creates a circular
+# dependency. Set CONFIG_MODEM_ATTEST_TOKEN=y explicitly alongside CONFIG_NRF_PROVISIONING=y.
+configdefault MODEM_KEY_MGMT
+	default y
+
+endif # NRF_PROVISIONING
