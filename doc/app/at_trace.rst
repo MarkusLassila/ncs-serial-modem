@@ -41,10 +41,19 @@ Syntax
 
 The parameters and their defined values are the following:
 
-<mode>
-   * ``0`` - Disable the application log backend and suspend the UART.
-   * ``1`` - Resume the UART and enable the application log backend.
+.. note::
+   Regardless of the mode, nRF Cloud Observability collects information, warning, and error
+   level traces (with sensitive payloads redacted) on crash, even when the UART is silent.
+   These traces are only visible once uploaded to nRF Cloud. See :ref:`SM_AT_NRFCLOUDOBS`.
 
+  * ``0`` - Suspend the UART and disable the application log backend; no traces are shown.
+  * ``1`` - Resume the UART and enable the application log backend.
+    AT commands, responses, and URCs are logged as strings at information log level, with
+    sensitive payloads redacted.
+  * ``2`` - Resume the UART and enable the application log backend.
+    AT commands, responses, and URCs are logged as raw hex dumps at debug level only; these hex
+    dumps are not collected by nRF Cloud Observability.
+    Requires the :kconfig:option:`CONFIG_SM_LOG_LEVEL_DBG` Kconfig option.
 
 .. note::
    Returns ``ERROR`` if ``AT#XTRACE=1`` has been issued.
@@ -74,7 +83,9 @@ The parameters and their defined values are the following:
    The current state.
 
    * ``0`` - Disabled.
-   * ``1`` - Enabled.
+   * ``1`` - Logging with sensitive AT command payloads redacted.
+   * ``2`` - Logging with sensitive AT command and response payloads logged as DBG hex dump only.
+     Only available if the :kconfig:option:`CONFIG_SM_LOG_LEVEL_DBG` Kconfig option is enabled.
 
 Test command
 ------------
@@ -93,7 +104,7 @@ Response syntax
 
 ::
 
-   #XLOG: (0,1)
+   #XLOG: (0,1,2)
 
 Example
 ~~~~~~~
