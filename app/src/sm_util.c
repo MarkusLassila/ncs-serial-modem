@@ -28,7 +28,8 @@ static bool cmd_name_has_lower(const char *cmd)
 		if (c == '=' || c == '?') {
 			break;
 		} else if (islower(c)) {
-			LOG_ERR("FIX ME: AT command \"%s\" must be all-uppercase.", cmd);
+			LOG_ERR("FIX ME: AT command \"%.*s\" must be all-uppercase.",
+				(int)strcspn(cmd, "=?,\r\n"), cmd);
 			return true;
 		}
 	}
@@ -45,8 +46,9 @@ int sm_util_at_printf(const char *fmt, ...)
 	ret = vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
 	if (ret >= sizeof(buf)) {
-		LOG_ERR("AT command \"%.16s...\" would get truncated from %u to %u bytes. "
-			"The buffer needs to be made bigger.", buf, ret, sizeof(buf) - 1);
+		LOG_ERR("AT command \"%.*s...\" would get truncated from %u to %u bytes. "
+			"The buffer needs to be made bigger.",
+			(int)MIN(strcspn(buf, "=?,\r\n"), 16U), buf, ret, sizeof(buf) - 1);
 		return -E2BIG;
 	}
 

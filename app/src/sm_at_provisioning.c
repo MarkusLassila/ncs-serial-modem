@@ -68,6 +68,10 @@ static void nrf_provisioning_callback(const struct nrf_provisioning_callback_dat
 		LOG_WRN("Claim the device using the device's attestation token on "
 			"nrfcloud.com");
 
+		/* TODO: Discuss in PR — the attestation token (AT%ATTESTTOKEN) is listed as
+		 * sensitive data. Logging it here via LOG_WRN exposes it through the Zephyr
+		 * log backend (serial/UART) and possibly through nRF Cloud Observability.
+		 */
 		if (IS_ENABLED(CONFIG_NRF_PROVISIONING_PROVIDE_ATTESTATION_TOKEN)) {
 			LOG_WRN("Attestation token:\r\n\n%.*s.%.*s\r\n", event->token->attest_sz,
 				event->token->attest, event->token->cose_sz, event->token->cose);
