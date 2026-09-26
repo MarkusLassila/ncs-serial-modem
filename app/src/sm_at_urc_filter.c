@@ -47,7 +47,7 @@ static void sm_urcf_cereg_subscribe(void)
 	snprintf(cmd, sizeof(cmd), "AT+CEREG=%d", SM_AT_CEREG_INTERNAL_MODE);
 	ret = sm_util_at_cmd_no_intercept(buf, sizeof(buf), cmd);
 	if (ret) {
-		LOG_ERR("Failed to subscribe to +CEREG notifications (%d).", ret);
+		LOG_ERR("Subscribe to %s failed: %d", "+CEREG", ret);
 	}
 }
 
@@ -58,7 +58,7 @@ static void sm_urcf_cgerep_subscribe(void)
 
 	ret = sm_util_at_cmd_no_intercept(buf, sizeof(buf), "AT+CGEREP=1");
 	if (ret) {
-		LOG_ERR("Failed to subscribe to +CGEV notifications (%d).", ret);
+		LOG_ERR("Subscribe to %s failed: %d", "+CGEV", ret);
 	}
 }
 
@@ -69,7 +69,7 @@ static void sm_urcf_xtime_subscribe(void)
 
 	ret = sm_util_at_cmd_no_intercept(buf, sizeof(buf), "AT%XTIME=1");
 	if (ret) {
-		LOG_ERR("Failed to subscribe to %%XTIME notifications (%d).", ret);
+		LOG_ERR("Subscribe to %s failed: %d", "%XTIME", ret);
 	}
 }
 
@@ -97,7 +97,7 @@ STATIC int sm_urcf_cereg_callback(char *buf, size_t len, char *at_cmd)
 	const bool set_cmd = (sscanf(at_cmd, "%*[^=]=%u", &mode) == 1);
 
 	if (!set_cmd && (!strcasecmp(at_cmd, "AT+CEREG") || !strcasecmp(at_cmd, "AT+CEREG="))) {
-		LOG_ERR("The syntax %s is disallowed. Use AT+CEREG=0 instead.", at_cmd);
+		LOG_ERR("Syntax %s disallowed, use %s instead", at_cmd, "AT+CEREG=0");
 		return -EINVAL;
 	}
 
@@ -132,7 +132,7 @@ STATIC int sm_urcf_cgerep_callback(char *buf, size_t len, char *at_cmd)
 	const bool set_cmd = (sscanf(at_cmd, "%*[^=]=%u", &subscribe) == 1);
 
 	if (!set_cmd && (!strcasecmp(at_cmd, "AT+CGEREP") || !strcasecmp(at_cmd, "AT+CGEREP="))) {
-		LOG_ERR("The syntax %s is disallowed. Use AT+CGEREP=0 instead.", at_cmd);
+		LOG_ERR("Syntax %s disallowed, use %s instead", at_cmd, "AT+CGEREP=0");
 		return -EINVAL;
 	}
 
@@ -167,7 +167,7 @@ STATIC int sm_urcf_xtime_callback(char *buf, size_t len, char *at_cmd)
 	const bool set_cmd = (sscanf(at_cmd, "%*[^=]=%u", &subscribe) == 1);
 
 	if (!set_cmd && (!strcasecmp(at_cmd, "AT%XTIME") || !strcasecmp(at_cmd, "AT%XTIME="))) {
-		LOG_ERR("The syntax %s is disallowed. Use AT%%XTIME=0 instead.", at_cmd);
+		LOG_ERR("Syntax %s disallowed, use %s instead", at_cmd, "AT%XTIME=0");
 		return -EINVAL;
 	}
 
