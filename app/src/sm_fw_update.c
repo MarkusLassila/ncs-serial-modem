@@ -13,6 +13,11 @@
 
 LOG_MODULE_REGISTER(sm_fw_update, CONFIG_SM_LOG_LEVEL);
 
+/* Reserves the modem DFU area for direct delta modem DFU, so that AT#XFOTA and AT#XNRFCLOUDFOTA
+ * cannot erase or overwrite a partly written or scheduled image.
+ */
+static atomic_t modem_dfu_claimed;
+
 static void on_modem_dfu_res(int dfu_res, void *ctx)
 {
 	switch (dfu_res) {
@@ -94,3 +99,26 @@ void sm_fw_update_boot_check(void)
 	sm_fota_info   = (type == BOOT_SWAP_TYPE_REVERT) ? ret : type;
 	sm_fota_stage  = FOTA_STAGE_COMPLETE;
 }
+
+int sm_fw_update_modem_dfu_claim(void)
+{
+	if (sm_fota_stage != FOTA_STAGE_INIT) {
+		LOG_ERR("FOTA in progress");
+		return -EBUSY;
+	}
+	atomic_set(&modem_dfu_claimed, 1);
+	return 0;
+}
+
+bool sm_fw_update_modem_dfu_busy(void)
+{
+	return atomic_get(&modem_dfu_claimed) != 0;
+}
+
+static void modem_dfu_release(void *ctx)
+{
+	ARG_UNUSED(ctx);
+
+	atomic_set(&modem_dfu_claimed, 0);
+}
+NRF_MODEM_LIB_ON_SHUTDOWN(sm_fw_update_shutdown, modem_dfu_release, NULL);
