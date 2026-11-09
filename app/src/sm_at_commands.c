@@ -335,6 +335,8 @@ STATIC int handle_ate1(enum at_parser_cmd_type cmd_type, struct at_parser *, uin
 	return 0;
 }
 
+#if defined(CONFIG_SM_FW_UPDATE)
+
 /** @brief Operations for AT#XBOOTINFO. */
 enum xbootinfo_op {
 	XBOOTINFO_OP_VERSION = 0,
@@ -384,6 +386,8 @@ STATIC int handle_at_xbootinfo(enum at_parser_cmd_type cmd_type, struct at_parse
 		return -EINVAL;
 	}
 }
+
+#endif /* CONFIG_SM_FW_UPDATE */
 
 #if defined(CONFIG_SM_DEBUG_STATS_HEAP)
 

@@ -243,7 +243,9 @@ static int sm_main(void)
 
 	sm_fota_mcuboot_bl_boot_check();
 
-	sm_fw_update_boot_check();
+	if (IS_ENABLED(CONFIG_SM_FW_UPDATE)) {
+		sm_fw_update_boot_check();
+	}
 
 	if (sm_init_failed) {
 		urc_send(SM_SYNC_ERR_STR);
