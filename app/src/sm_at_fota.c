@@ -455,6 +455,7 @@ static int handle_at_fota(enum at_parser_cmd_type cmd_type, struct at_parser *pa
 
 					/* Save the MCUboot version before FOTA. */
 					sm_util_mcuboot_active_version(&sm_fota_bl_version_before);
+					sm_settings_fota_bl_version_save();
 					sm_settings_fota_save();
 				}
 #endif
