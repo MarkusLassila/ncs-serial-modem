@@ -210,7 +210,8 @@ static void sm_modemreset(void)
 
 	ret = nrf_modem_lib_init();
 
-	if (sm_fota_type == SM_FOTA_TYPE_MFW || sm_fota_type == SM_FOTA_TYPE_FULL_MFW) {
+	if (IS_ENABLED(CONFIG_SM_FOTA_SESSION) &&
+	    (sm_fota_type == SM_FOTA_TYPE_MFW || sm_fota_type == SM_FOTA_TYPE_FULL_MFW)) {
 		sm_fota_post_process();
 	}
 

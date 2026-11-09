@@ -256,7 +256,9 @@ static int sm_main(void)
 	/* This is here and not earlier because in case of firmware
 	 * update it will send an AT response so the UART must be up.
 	 */
-	sm_fota_post_process();
+	if (IS_ENABLED(CONFIG_SM_FOTA_SESSION)) {
+		sm_fota_post_process();
+	}
 
 	lte_auto_connect();
 

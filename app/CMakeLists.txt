@@ -24,7 +24,7 @@ target_sources(app PRIVATE src/sm_log.c)
 target_sources(app PRIVATE src/sm_at_urc_filter.c)
 # NORDIC SDK APP END
 target_sources_ifdef(CONFIG_SM_FW_UPDATE app PRIVATE src/sm_fw_update.c)
-target_sources(app PRIVATE src/sm_fota_session.c)
+target_sources_ifdef(CONFIG_SM_FOTA_SESSION app PRIVATE src/sm_fota_session.c)
 target_sources_ifdef(CONFIG_SM_SMS app PRIVATE src/sm_at_sms.c)
 target_sources_ifdef(CONFIG_SM_PPP app PRIVATE src/sm_ppp.c)
 target_sources_ifdef(CONFIG_SM_CMUX app PRIVATE src/sm_cmux.c)
