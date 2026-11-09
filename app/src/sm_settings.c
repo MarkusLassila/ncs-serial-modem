@@ -11,6 +11,7 @@
 #include <dfu/dfu_target.h>
 #include <errno.h>
 #include "sm_at_fota.h"
+#include "sm_fota_session.h"
 #include "sm_at_dfu.h"
 #include "sm_settings.h"
 #include "sm_defines.h"
