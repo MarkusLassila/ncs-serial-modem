@@ -241,7 +241,9 @@ static int sm_main(void)
 		(void)sm_settings_modem_eio_retried_save();
 	}
 
-	sm_fota_mcuboot_bl_boot_check();
+	if (IS_ENABLED(CONFIG_SM_FOTA)) {
+		sm_fota_mcuboot_bl_boot_check();
+	}
 
 	if (IS_ENABLED(CONFIG_SM_FW_UPDATE)) {
 		sm_fw_update_boot_check();

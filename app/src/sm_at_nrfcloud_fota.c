@@ -226,9 +226,11 @@ static void nrfcloud_fota_session_end(void)
 
 	nrf_cloud_download_end();
 
-	err = sm_at_fota_register_callback();
-	if (err) {
-		LOG_ERR("FOTA callback restore failed: %d", err);
+	if (IS_ENABLED(CONFIG_SM_FOTA)) {
+		err = sm_at_fota_register_callback();
+		if (err) {
+			LOG_ERR("FOTA callback restore failed: %d", err);
+		}
 	}
 }
 

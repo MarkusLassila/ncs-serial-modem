@@ -32,12 +32,14 @@ static int settings_set(const char *name, size_t len, settings_read_cb read_cb, 
 		if (read_cb(cb_arg, &full_mfw_dfu_segment_type, len) > 0)
 			return 0;
 	}
+#if defined(CONFIG_SM_FOTA)
 	if (!strcmp(name, "bl_fota_ver")) {
 		if (len != sizeof(sm_fota_bl_version_before))
 			return -EINVAL;
 		if (read_cb(cb_arg, &sm_fota_bl_version_before, len) > 0)
 			return 0;
 	}
+#endif /* CONFIG_SM_FOTA */
 #if defined(CONFIG_SM_FOTA_SESSION)
 	if (!strcmp(name, "fota_type")) {
 		if (len != sizeof(sm_fota_type))
@@ -112,11 +114,13 @@ int sm_settings_fota_save(void)
 }
 #endif /* CONFIG_SM_FOTA_SESSION */
 
+#if defined(CONFIG_SM_FOTA)
 int sm_settings_fota_bl_version_save(void)
 {
 	return settings_save_one("sm/bl_fota_ver", &sm_fota_bl_version_before,
 				 sizeof(sm_fota_bl_version_before));
 }
+#endif /* CONFIG_SM_FOTA */
 
 int sm_settings_bootloader_mode_save(void)
 {
