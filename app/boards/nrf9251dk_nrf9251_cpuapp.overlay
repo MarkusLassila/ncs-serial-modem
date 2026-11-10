@@ -16,6 +16,7 @@
 	status = "okay";
 	hw-flow-control;
 
+	// TODO: How to wire DTR by default?
 	dtr_uart0: dtr-uart {
 		compatible = "nordic,dtr-uart";
 		dtr-gpios = <&gpio0 1 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
